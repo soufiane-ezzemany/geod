@@ -1,0 +1,37 @@
+name: User Story
+description: Create a new feature from the user's perspective
+title: "[US] "
+labels: ["user-story"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## User Story Description
+        Please provide a clear description of the desired feature.
+
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User Story
+      description: Format "As a X, I want Y so that Z"
+      placeholder: As a customer, I want to reset my password so that I can recover access to my account if I forget it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: List of conditions to consider this feature complete
+      placeholder: |
+        - [ ] User can request a reset via a "Forgot Password" button
+        - [ ] An email is sent with a secure link
+        - [ ] The link expires after 24 hours
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Notes
+      description: Any additional information, constraints, or references

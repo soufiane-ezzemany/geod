@@ -1,0 +1,29 @@
+name: Technical Task
+description: Create a specific technical task
+title: "[TASK] "
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Technical Task
+        Clearly describe the task to be completed.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Detailed description of the task to accomplish
+      placeholder: Implement client-side validation for the login form
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-details
+    attributes:
+      label: Technical Details
+      description: Technical specifications, suggested approach, constraints
+      placeholder: |
+        - Use React Hook Form for validation
+        - Validate email and password fields
+        - Display appropriate error messages
