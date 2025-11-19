@@ -1,10 +1,14 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import AppRoutes from './routes'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
 
-createRoot(document.getElementById('root')!).render(
+import { MetricsProvider } from "./hooks/useMetrics";
+import AppRoutes from "./routes";
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AppRoutes />
-  </StrictMode>,
-)
+    <MetricsProvider>
+      <AppRoutes />
+    </MetricsProvider>
+  </StrictMode>
+);
