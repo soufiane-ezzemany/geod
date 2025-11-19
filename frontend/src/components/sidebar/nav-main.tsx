@@ -15,7 +15,6 @@ import {
     SidebarMenuSubButton,
     SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
-import * as React from "react"
 
 export function NavMain({
     items,
