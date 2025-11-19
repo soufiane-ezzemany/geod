@@ -1,0 +1,2 @@
+python-socketio[client]==5.11.4
+psutil==6.1.0
