@@ -1,11 +1,11 @@
 # Geod
 
-Geod is built with a Flask backend and a React frontend. The **`backend/`** directory contains the Flask API server built with Python, while the **`frontend/`** directory contains the React application built with TypeScript and Vite.
+Geod is built with a Flask backend, a React frontend, a Python agent, and deployment/infrastructure tools. The [`backend/`](./backend/Readme.md) directory contains the Flask API server built with Python, the [`frontend/`](./frontend/README.md) directory contains the React application built with TypeScript and Vite, the [`agent/`](./agent/README.md) directory contains the Python agent for network monitoring and manipulation, and the [`infra/`](./infra/README.md) directory contains deployment scripts and infrastructure automation.
 
 ## Getting Started
 
-To run the application, you'll need to set up both the backend and frontend. Navigate to the **`backend/`** directory and follow the instructions in [`backend/Readme.md`](./backend/Readme.md), then navigate to the **`frontend/`** directory and follow the instructions in [`frontend/README.md`](./frontend/README.md).
+To run the application, you'll need to set up the backend, frontend, and at least oneagent. Start by following the instructions in [`backend/Readme.md`](./backend/Readme.md), [`frontend/README.md`](./frontend/README.md), and [`agent/README.md`](./agent/README.md) for each respective directory.
 
 ## Development
 
-Make sure both the backend and frontend servers are running simultaneously for full functionality.
+For full functionality, make sure the backend, frontend, and at least one agent are all running simultaneously.
