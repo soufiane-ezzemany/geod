@@ -134,6 +134,19 @@ For full functionality, make sure the backend, frontend, and at least one agent 
   }
   ```
 
+#### `execute_command`
+
+- **Source**: Backend
+- **Description**: Sends a specific command to a targeted agent.
+- **Payload**:
+  ```json
+  {
+    "command": "string",
+    "params": "object",
+    "request_id": "string"
+  }
+  ```
+
 ### Events from Agent to Backend
 
 #### `register_agent`
