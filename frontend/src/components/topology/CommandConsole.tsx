@@ -126,7 +126,7 @@ export default function CommandConsole({
             <div className="font-semibold">Console</div>
             <div className="flex items-center gap-2">
               <button
-                className="bg-primary text-primary-foreground px-3 py-1 rounded shadow"
+                className="text-sm text-muted-foreground"
                 onClick={() => setOpen(true)}
                 aria-label="Open console"
               >
