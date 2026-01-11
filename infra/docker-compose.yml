@@ -1,0 +1,36 @@
+version: '3'
+services:
+  backend:
+    build: ../backend
+    ports:
+      - "5000:5000"
+    networks:
+      - geod-net
+
+  frontend:
+    build: ../frontend
+    ports:
+      - "5173:5173"
+    networks:
+      - geod-net
+    command: npm run dev -- --host 0.0.0.0
+
+  agent-paris:
+    build: ../agent
+    command: python agent.py --backend http://host.docker.internal:5000
+    privileged: true 
+    restart: always
+    networks:
+      - geod-net
+
+  agent-ny:
+    build: ../agent
+    command: python agent.py --backend http://host.docker.internal:5000
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+      
+networks:
+  geod-net:
+    driver: bridge

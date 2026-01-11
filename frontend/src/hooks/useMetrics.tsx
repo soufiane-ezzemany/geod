@@ -31,7 +31,7 @@ export interface SystemStats {
   timestamp: string;
 }
 export interface Metrics {
-  agent_id: string;
+  agent_id: string; // This will store the hostname
   network: NetworkStats;
   system: SystemStats;
   timestamp: string;
@@ -60,12 +60,12 @@ export function MetricsProvider({ children }: { children: React.ReactNode }) {
     socket.on("network_stats_update", (data) => {
       setMetrics((prev) => [
         {
-          agent_id: data.agent_id,
+          agent_id: data.hostname, // Mapping hostname to agent_id
           network: data.stats.network,
           system: data.stats.system,
           timestamp: data.timestamp,
         },
-        ...prev.slice(0, 19), // keep last 20
+        ...prev.slice(0, 50), // keep last 50
       ]);
     });
 
