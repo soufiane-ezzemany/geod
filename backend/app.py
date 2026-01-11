@@ -227,6 +227,50 @@ def handle_trigger_command(data):
     else:
         return {'status': 'error', 'message': 'Agent not found'}
 
+
+@socketio.on('remove_link')
+def handle_remove_link(data):
+    """
+    Remove a link from the topology graph. Expects: {'source': 'A', 'target': 'B'}
+    """
+    source = data.get('source')
+    target = data.get('target')
+    try:
+        with topology_manager.lock:
+            if topology_manager.graph.has_edge(source, target):
+                topology_manager.graph.remove_edge(source, target)
+        # Broadcast updated topology to all clients
+        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
+        # Emit explicit ack only to the requesting socket
+        emit('link_removed_ack', {'source': source, 'target': target, 'status': 'removed'}, room=request.sid)
+        return {'status': 'removed'}
+    except Exception as e:
+        logger.error(f"Error removing link: {e}")
+        emit('link_removed_ack', {'source': source, 'target': target, 'status': 'error', 'message': str(e)}, room=request.sid)
+        return {'status': 'error', 'message': str(e)}
+
+
+@socketio.on('add_link')
+def handle_add_link(data):
+    """
+    Add a link to the topology graph. Expects: {'source': 'A', 'target': 'B', 'data': {...}}
+    """
+    source = data.get('source')
+    target = data.get('target')
+    link_data = data.get('data', {})
+    try:
+        with topology_manager.lock:
+            topology_manager.graph.add_edge(source, target, **(link_data or {}))
+        # Broadcast updated topology to all clients
+        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
+        # Emit explicit ack only to the requesting socket
+        emit('link_added_ack', {'source': source, 'target': target, 'status': 'added'}, room=request.sid)
+        return {'status': 'added'}
+    except Exception as e:
+        logger.error(f"Error adding link: {e}")
+        emit('link_added_ack', {'source': source, 'target': target, 'status': 'error', 'message': str(e)}, room=request.sid)
+        return {'status': 'error', 'message': str(e)}
+
 # --- Background Monitoring Task ---
 
 def monitor_links_loop():

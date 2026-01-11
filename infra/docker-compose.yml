@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 services:
   backend:
     build: ../backend
@@ -18,7 +18,7 @@ services:
   agent-paris:
     build: ../agent
     command: python agent.py --backend http://host.docker.internal:5000
-    privileged: true 
+    privileged: true
     restart: always
     networks:
       - geod-net
@@ -30,7 +30,15 @@ services:
     restart: always
     networks:
       - geod-net
-      
+
+  agent-tokyo:
+    build: ../agent
+    command: python agent.py --backend http://host.docker.internal:5000
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
 networks:
   geod-net:
     driver: bridge

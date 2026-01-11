@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
 import { StatsCard } from "@/components/stats/StatsCard"
-import { Network, Activity, Layers, AlertCircle } from "lucide-react"
 import TopologyGraph from "@/components/topology/TopologyGraph"
+import { Activity, AlertCircle, Layers, Network } from "lucide-react"
+import { useEffect, useState } from "react"
 import { io } from "socket.io-client"
 
 export default function Dashboard() {
@@ -106,7 +106,7 @@ export default function Dashboard() {
                 />
             </div>
 
-            <div className="flex-1 min-h-[500px] border rounded-xl shadow-sm bg-white overflow-hidden">
+            <div className="flex-1 border rounded-xl shadow-sm bg-white overflow-hidden">
                 <TopologyGraph />
             </div>
         </div>
