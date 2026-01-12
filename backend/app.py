@@ -271,6 +271,26 @@ def handle_add_link(data):
         emit('link_added_ack', {'source': source, 'target': target, 'status': 'error', 'message': str(e)}, room=request.sid)
         return {'status': 'error', 'message': str(e)}
 
+@socketio.on('toggle_link_monitoring')
+def handle_toggle_link_monitoring(data):
+    """
+    Toggle monitoring for a specific link. Expects: {'source': 'A', 'target': 'B', 'enabled': True/False}
+    """
+    source = data.get('source')
+    target = data.get('target')
+    enabled = data.get('enabled', True)
+    try:
+        with topology_manager.lock:
+            if topology_manager.graph.has_edge(source, target):
+                topology_manager.graph[source][target]['monitoring'] = enabled
+        
+        # Broadcast updated topology to all clients
+        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
+        return {'status': 'updated'}
+    except Exception as e:
+        logger.error(f"Error toggling monitoring: {e}")
+        return {'status': 'error', 'message': str(e)}
+
 # --- Background Monitoring Task ---
 
 def monitor_links_loop():
@@ -288,6 +308,10 @@ def monitor_links_loop():
             for link in links:
                 source = link.get('source')
                 target = link.get('target')
+                monitoring_enabled = link.get('monitoring', True) # Default to True
+
+                if not monitoring_enabled:
+                    continue
                 
                 # Check if both are connected
                 if source in hostname_to_sid and target in hostname_to_sid:

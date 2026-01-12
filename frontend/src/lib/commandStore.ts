@@ -42,7 +42,11 @@ export function subscribe(fn: (entries: Entry[]) => void) {
 
 export function addEntry(raw: Entry) {
   const e = parseCommandResult(raw);
-  entries = [e, ...entries].slice(0, 500);
+  // Append to end, keep last 500
+  entries = [...entries, e];
+  if (entries.length > 500) {
+    entries = entries.slice(entries.length - 500);
+  }
   subscribers.forEach((s) => s(entries));
 }
 

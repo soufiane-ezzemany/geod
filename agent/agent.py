@@ -324,7 +324,7 @@ class NetworkAgent:
         
         # 1. Clear existing rules (ignore error if none exist)
         try:
-            subprocess.call(['sudo', 'tc', 'qdisc', 'del', 'dev', interface, 'root'], stderr=subprocess.DEVNULL)
+            subprocess.call(['tc', 'qdisc', 'del', 'dev', interface, 'root'], stderr=subprocess.DEVNULL)
             results['clear'] = 'cleared'
         except Exception:
             pass
@@ -338,7 +338,7 @@ class NetworkAgent:
         # Note: rate in netem might be limited, but sufficient for emulation.
         # Syntax: tc qdisc add dev eth0 root netem delay 100ms loss 10% rate 1mbit
         
-        cmd = ['sudo', 'tc', 'qdisc', 'add', 'dev', interface, 'root', 'netem']
+        cmd = ['tc', 'qdisc', 'add', 'dev', interface, 'root', 'netem']
         
         if latency:
             # Ensure format is like "100ms"

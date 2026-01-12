@@ -61,6 +61,7 @@ export interface TopologyLink {
   target: string;
   latency?: number;
   last_updated?: string;
+  monitoring?: boolean;
   [key: string]: unknown;
 }
 

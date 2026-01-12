@@ -280,6 +280,15 @@ const TopologyGraph = () => {
         });
         toast.success(`Traffic control reset (Source: ${source})`);
 
+      } else if (action === "toggle_monitoring") {
+         if (!socket) return;
+         socket.emit("toggle_link_monitoring", {
+             source,
+             target,
+             enabled: safeParams.enabled
+         });
+         toast.info(safeParams.enabled ? "Monitoring Resumed" : "Monitoring Paused");
+
       } else if (action === "iperf") {
         if (!socket) {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
@@ -470,12 +479,16 @@ const TopologyGraph = () => {
         source: l.source,
         target: l.target,
         type: "custom", // Use our custom edge
-        label: l.latency ? `${l.latency}ms` : "Connecting...",
-        animated: true,
-        style: { stroke: "#94a3b8" },
+        label: l.monitoring === false ? "Paused" : (l.latency ? `${l.latency}ms` : "Connecting..."),
+        animated: l.monitoring !== false,
+        style: { 
+            stroke: l.monitoring === false ? "#cbd5e1" : determineLinkColor(l.latency || 0),
+            strokeDasharray: l.monitoring === false ? "5,5" : "none",
+        },
         markerEnd: { type: MarkerType.ArrowClosed },
         data: {
           onAction: handleEdgeAction,
+          monitoring: l.monitoring !== false,
         },
       }));
 

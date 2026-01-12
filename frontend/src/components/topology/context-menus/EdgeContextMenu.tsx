@@ -15,6 +15,7 @@ interface EdgeContextMenuProps {
   edgeId: string;
   source: string;
   target: string;
+  monitoring?: boolean;
   onAction: (action: string, edgeId: string, source: string, target: string, params?: unknown) => void;
 }
 
@@ -23,6 +24,7 @@ export function EdgeContextMenu({
   edgeId,
   source,
   target,
+  monitoring = true,
   onAction,
 }: EdgeContextMenuProps) {
   
@@ -39,6 +41,12 @@ export function EdgeContextMenu({
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-56">
         
+        <ContextMenuItem inset onClick={() => handleAction("toggle_monitoring", { enabled: !monitoring })}>
+            {monitoring ? "⏸ Pause Monitoring" : "▶ Resume Monitoring"}
+        </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
         <ContextMenuSub>
             <ContextMenuSubTrigger inset>Contrôle de Trafic</ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-48">

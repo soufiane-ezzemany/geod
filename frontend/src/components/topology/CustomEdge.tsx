@@ -38,7 +38,13 @@ export default function CustomEdge({
         className="react-flow__edge-interaction"
       />
       <EdgeLabelRenderer>
-        <EdgeContextMenu edgeId={id} source={source} target={target} onAction={data?.onAction}>
+        <EdgeContextMenu 
+            edgeId={id} 
+            source={source} 
+            target={target} 
+            monitoring={data?.monitoring} 
+            onAction={data?.onAction}
+        >
           <div
             style={{
               position: "absolute",
