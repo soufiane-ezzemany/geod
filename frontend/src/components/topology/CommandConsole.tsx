@@ -16,7 +16,7 @@ interface CommandEntry {
   hostname: string;
   command: string;
   status: string;
-  data: any;
+  data: unknown;
   timestamp: string;
   parsed?: ParsedCommandData;
 }
@@ -34,12 +34,15 @@ export default function CommandConsole({
   const [height, setHeight] = useState<number>(320);
   
   // UX State
-  const [hasUnread, setHasUnread] = useState(false);
+  const [lastReadCount, setLastReadCount] = useState(entries.length);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(entries.length);
+
+  // Derived state for unread badge
+  const hasUnread = !open && entries.length > lastReadCount;
 
   const hosts = useMemo(() => Array.from(new Set(entries.map((e) => e.hostname))), [entries]);
 
@@ -75,12 +78,10 @@ export default function CommandConsole({
       toast.success("Output copied to clipboard");
   };
 
-  // Handle new entries
+  // Handle new entries (Auto-scroll & Scroll Button)
   useEffect(() => {
     if (entries.length > prevCountRef.current) {
-      if (!open) {
-        setHasUnread(true);
-      } else {
+      if (open) {
         if (isAtBottom) {
             requestAnimationFrame(() => scrollToBottom());
         } else {
@@ -91,17 +92,23 @@ export default function CommandConsole({
     prevCountRef.current = entries.length;
   }, [entries.length, open, isAtBottom]);
 
+  // Sync lastReadCount when opening/closing
   useEffect(() => {
     if (open) {
-        setHasUnread(false);
+        setLastReadCount(entries.length);
         requestAnimationFrame(() => scrollToBottom());
+    } else {
+        setLastReadCount(entries.length);
     }
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]); 
 
   // --- Renderers ---
 
   const renderIperf = (entry: CommandEntry) => {
-      const { bandwidth_mbps, bytes_sent } = entry.data.summary || {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = entry.data as any;
+      const { bandwidth_mbps, bytes_sent } = data.summary || {};
       if (!bandwidth_mbps) return renderGeneric(entry);
 
       const transferMB = (bytes_sent / 1_000_000).toFixed(2);
@@ -144,10 +151,12 @@ export default function CommandConsole({
   };
 
   const renderPing = (entry: CommandEntry) => {
-      const output = typeof entry.data === 'string' ? entry.data : entry.data?.output || JSON.stringify(entry.data);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = entry.data as any;
+      const output = typeof entry.data === 'string' ? entry.data : d?.output || JSON.stringify(entry.data);
       // Basic parsing for ping stats
       const packetLossMatch = output.match(/(\d+)% packet loss/);
-      const rttMatch = output.match(/rtt min\/avg\/max\/mdev = ([\d\.]+)\/([\d\.]+)\/([\d\.]+)\/([\d\.]+) ms/);
+      const rttMatch = output.match(/rtt min\/avg\/max\/mdev = ([\d.]+)\/([\d.]+)\/([\d.]+)\/([\d.]+) ms/);
       
       return (
         <div className="bg-slate-50 border border-slate-200 rounded-md p-3 text-sm font-mono text-slate-800">
@@ -200,7 +209,9 @@ export default function CommandConsole({
   };
 
   const renderData = (entry: CommandEntry) => {
-      if (entry.command === 'run_iperf_client' && entry.data?.summary) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = entry.data as any;
+      if (entry.command === 'run_iperf_client' && data?.summary) {
           return renderIperf(entry);
       }
       if (entry.command === 'ping') {

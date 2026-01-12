@@ -1,21 +1,23 @@
-type Entry = {
+export type Entry = {
   id: string;
   hostname: string;
   command: string;
   status: string;
-  data: any;
+  data: unknown;
   timestamp: string;
-  parsed?: any;
+  parsed?: Record<string, unknown>;
 };
 
 const subscribers: ((entries: Entry[]) => void)[] = [];
 let entries: Entry[] = [];
 
 function parseCommandResult(e: Entry): Entry {
-  const parsed: any = {};
+  const parsed: Record<string, unknown> = {};
   // Parse ping outputs for latency
   try {
-    const out = typeof e.data === "string" ? e.data : e.data?.output || "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = e.data as any;
+    const out = typeof e.data === "string" ? e.data : d?.output || "";
     if (out) {
       // look for time=12.3 ms or Average = 12ms
       const m = out.match(/time=([0-9]+\.?[0-9]*)/);
@@ -25,7 +27,7 @@ function parseCommandResult(e: Entry): Entry {
         if (m2) parsed.latency = parseFloat(m2[1]);
       }
     }
-  } catch (err) {
+  } catch {
     // ignore
   }
   return { ...e, parsed };

@@ -9,6 +9,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { toast } from "sonner";
+import type { CommandParams } from "@/types/network";
 
 interface EdgeContextMenuProps {
   children: React.ReactNode;
@@ -16,7 +17,7 @@ interface EdgeContextMenuProps {
   source: string;
   target: string;
   monitoring?: boolean;
-  onAction: (action: string, edgeId: string, source: string, target: string, params?: unknown) => void;
+  onAction: (action: string, edgeId: string, source: string, target: string, params?: CommandParams) => void;
 }
 
 export function EdgeContextMenu({
@@ -28,7 +29,7 @@ export function EdgeContextMenu({
   onAction,
 }: EdgeContextMenuProps) {
   
-  const handleAction = (action: string, params: any = {}) => {
+  const handleAction = (action: string, params: CommandParams = {}) => {
       if (onAction) {
           onAction(action, edgeId, source, target, params);
       } else {

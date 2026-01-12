@@ -1,9 +1,9 @@
-import { addEntry, clear as clearStore, getEntries, subscribe } from "@/lib/commandStore";
+import { addEntry, clear as clearStore, getEntries, subscribe, type Entry } from "@/lib/commandStore";
 import { useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
 export function useCommandConsole() {
-  const [entries, setEntries] = useState<any[]>(getEntries());
+  const [entries, setEntries] = useState<Entry[]>(getEntries());
   useEffect(() => {
     const socket: Socket = io("http://localhost:5000");
     socket.on("command_result_update", (data) => {

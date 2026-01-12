@@ -8,11 +8,12 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import type { CommandParams } from "@/types/network";
 
 interface NodeContextMenuProps {
   children: React.ReactNode;
   nodeId: string;
-  onAction: (action: string, nodeId: string, params?: unknown) => void;
+  onAction: (action: string, nodeId: string, params?: CommandParams) => void;
 }
 
 export function NodeContextMenu({ children, nodeId, onAction }: NodeContextMenuProps) {

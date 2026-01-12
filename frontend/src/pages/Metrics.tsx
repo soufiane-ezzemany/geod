@@ -1,4 +1,5 @@
 import { StatsCard } from "@/components/stats/StatsCard";
+import type { Metrics as RawMetric } from "@/hooks/useMetrics";
 import { useMetrics } from "@/hooks/useMetrics";
 import { Activity, HardDrive, Server } from "lucide-react";
 import { useState } from "react";
@@ -13,27 +14,14 @@ import {
   YAxis,
 } from "recharts";
 
-interface Metric {
-  agent_id: string;
-  system: {
-    cpu_percent: number;
-    memory: {
-      percent: number;
-      used: number;
-    };
-  };
-  network: {
-    bytes_sent: number;
-    bytes_recv: number;
-  };
-}
+// Use RawMetric imported from the metrics hook for consistent typing
 
 export default function Metrics() {
   const { metrics } = useMetrics();
 
   // Group metrics by agent_id
-  const metricsByAgent: Record<string, Metric[]> = metrics.reduce(
-    (acc: Record<string, Metric[]>, metric: Metric) => {
+  const metricsByAgent: Record<string, RawMetric[]> = metrics.reduce<Record<string, RawMetric[]>>(
+    (acc, metric) => {
       const agentId = metric.agent_id || "unknown";
       if (!acc[agentId]) {
         acc[agentId] = [];
@@ -41,7 +29,7 @@ export default function Metrics() {
       acc[agentId].push(metric);
       return acc;
     },
-    {}
+    {} as Record<string, RawMetric[]>
   );
 
   // For expanding/collapsing raw JSON
@@ -57,11 +45,11 @@ export default function Metrics() {
       </div>
       {Object.keys(metricsByAgent).length > 0 ? (
         Object.entries(metricsByAgent).map(([agentId, agentMetrics]) => {
-          // Sort metrics by time if available (assuming a timestamp field in future)
+          // Sort metrics by time if available (timestamp is string from backend)
           const sortedMetrics = [...agentMetrics];
-          // If metrics have a timestamp, sort by it descending
-          if (sortedMetrics[0] && (sortedMetrics[0] as any).timestamp) {
-            sortedMetrics.sort((a, b) => ((b as any).timestamp || 0) - ((a as any).timestamp || 0));
+          // If metrics have a timestamp, sort by it descending (convert to number)
+          if (sortedMetrics[0] && sortedMetrics[0].timestamp) {
+            sortedMetrics.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
           }
           const latest = sortedMetrics[0];
           // Prepare data for charts (reverse for time order)

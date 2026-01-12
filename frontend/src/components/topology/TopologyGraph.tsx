@@ -19,6 +19,11 @@ import type {
   TopologyData, 
   NetworkStatsUpdate, 
   LinkStatsUpdate,
+  TopologyLink,
+  CommandParams,
+  BandwidthParams,
+  IperfClientParams,
+  ToggleMonitoringParams,
 } from "@/types/network";
 
 const nodeTypes = {
@@ -29,12 +34,18 @@ const edgeTypes = {
   custom: CustomEdge,
 };
 
+const determineLinkColor = (latency: number) => {
+  if (latency < 20) return "#22c55e"; // Green
+  if (latency < 100) return "#eab308"; // Yellow
+  return "#ef4444"; // Red
+};
+
 const TopologyGraph = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [_pendingEdges, setPendingEdges] = useState<
+  const [, setPendingEdges] = useState<
     Record<string, { action: "remove" | "add"; ts: number }>
   >({});
   const [connectingInfo, setConnectingInfo] = useState<{
@@ -45,7 +56,7 @@ const TopologyGraph = () => {
 
   // Define actions using useCallback to keep reference stable
   const handleNodeAction = useCallback(
-    (action: string, nodeId: string, params?: unknown) => {
+    (action: string, nodeId: string, params?: CommandParams) => {
       console.log(`Node Action: ${action} on ${nodeId}`, params);
 
       if (action === "details") {
@@ -115,10 +126,9 @@ const TopologyGraph = () => {
   );
 
   const handleEdgeAction = useCallback(
-    (action: string, edgeId: string, source: string, target: string, params?: unknown) => {
+    (action: string, edgeId: string, source: string, target: string, params?: CommandParams) => {
       console.log(`Edge Action: ${action} on ${source}->${target}`, params);
-      const safeParams = (params as Record<string, any>) || {};
-
+      
       if (action === "disconnect") {
         // If WebSocket connected, prefer emitting remove_link so backend will broadcast update
         if (socket && socket.connected) {
@@ -146,8 +156,7 @@ const TopologyGraph = () => {
                         fetch("http://localhost:5000/api/topology")
                           .then((r) => r.json())
                           .then((currentTopo: TopologyData) => {
-                            // Cast to any to manipulate the list if needed, or better, type it strictly
-                            const topo = currentTopo as any; 
+                            const topo = currentTopo; 
                             topo.links.push({ source, target, type: "manual" });
                             return fetch("http://localhost:5000/api/topology", {
                               method: "POST",
@@ -193,10 +202,9 @@ const TopologyGraph = () => {
         fetch("http://localhost:5000/api/topology")
           .then((res) => res.json())
           .then((currentTopo: TopologyData) => {
-            // We need to cast because we are modifying the structure which might not exactly match the read one if we are strict
-            const topo = currentTopo as any;
+            const topo = currentTopo;
             topo.links = topo.links.filter(
-              (l: any) => !(l.source === source && l.target === target)
+              (l) => !(l.source === source && l.target === target)
             );
             return fetch("http://localhost:5000/api/topology", {
               method: "POST",
@@ -222,45 +230,51 @@ const TopologyGraph = () => {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
           return;
         }
+        const bwParams = params as BandwidthParams;
         socket.emit("trigger_command", {
           target_hostname: source,
           command: "bandwidth_limit",
           params: {
             interface: "eth0",
-            limit: safeParams.limit,
+            limit: bwParams?.limit,
           },
         });
-        toast.success(`Bandwidth limit: ${safeParams.limit} (Source: ${source})`);
+        toast.success(`Bandwidth limit: ${bwParams?.limit} (Source: ${source})`);
         
       } else if (action === "latency") {
         if (!socket) {
             toast.error("WebSocket not connected");
             return;
         }
+        const latParams = params as BandwidthParams;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const delayVal = (params as any)?.delay || latParams?.latency;
+
         socket.emit("trigger_command", {
             target_hostname: source,
             command: "bandwidth_limit",
             params: {
                 interface: "eth0",
-                latency: safeParams.delay
+                latency: delayVal
             }
         });
-        toast.success(`Latency: ${safeParams.delay} (Source: ${source})`);
+        toast.success(`Latency: ${delayVal} (Source: ${source})`);
 
       } else if (action === "loss") {
         if (!socket) {
             toast.error("WebSocket not connected");
             return;
         }
+        const lossParams = params as BandwidthParams;
         socket.emit("trigger_command", {
             target_hostname: source,
             command: "bandwidth_limit",
             params: {
                 interface: "eth0",
-                loss: safeParams.loss
+                loss: lossParams?.loss
             }
         });
-        toast.success(`Packet Loss: ${safeParams.loss} (Source: ${source})`);
+        toast.success(`Packet Loss: ${lossParams?.loss} (Source: ${source})`);
 
       } else if (action === "reset_traffic") {
         if (!socket) {
@@ -282,18 +296,20 @@ const TopologyGraph = () => {
 
       } else if (action === "toggle_monitoring") {
          if (!socket) return;
+         const monParams = params as ToggleMonitoringParams;
          socket.emit("toggle_link_monitoring", {
              source,
              target,
-             enabled: safeParams.enabled
+             enabled: monParams?.enabled
          });
-         toast.info(safeParams.enabled ? "Monitoring Resumed" : "Monitoring Paused");
+         toast.info(monParams?.enabled ? "Monitoring Resumed" : "Monitoring Paused");
 
       } else if (action === "iperf") {
         if (!socket) {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
           return;
         }
+        const iperfParams = params as IperfClientParams;
         // 1. Start Server on Target
         socket.emit("trigger_command", {
           target_hostname: target,
@@ -310,14 +326,14 @@ const TopologyGraph = () => {
             command: "run_iperf_client",
             params: {
               target: target, // Assuming DNS/hosts resolves this, otherwise we need IP
-              duration: safeParams.duration || 10,
+              duration: iperfParams?.duration || 10,
             },
           });
           toast.success(`Started Iperf Client on ${source} -> ${target}`);
         }, 1000);
       }
     },
-    [socket]
+    [socket, edges, setEdges]
   );
 
   // Initialize Socket
@@ -331,7 +347,7 @@ const TopologyGraph = () => {
       // Request initial topology
       fetch("http://localhost:5000/api/topology")
         .then((res) => res.json())
-        .then((data: TopologyData) => processRef.current && processRef.current(data));
+        .then((data: TopologyData) => processRef.current?.(data));
     });
 
     newSocket.on("disconnect", () => setIsConnected(false));
@@ -339,7 +355,7 @@ const TopologyGraph = () => {
     newSocket.on("topology_update", (data: TopologyData) => {
       // Clear pending markers; server topology is authoritative
       setPendingEdges({});
-      processRef.current && processRef.current(data);
+      processRef.current?.(data);
     });
 
     // Acks for link operations
@@ -448,15 +464,6 @@ const TopologyGraph = () => {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // We need to wrap processTopologyData to access the handlers
-  // But handlers depend on socket which changes.
-  // Better to store handlers in a ref or use the effect deps properly.
-  // Actually, standard practice is to put handlers in the data object.
-  // We need to re-process nodes if handlers change? No, just pass the stable function.
-
-  // Since processTopologyData is called from socket callback, it captures the closure.
-  // We'll make it a useCallback that depends on handlers.
-
   const processTopologyData = useCallback(
     (data: TopologyData) => {
       if (!data.nodes) return;
@@ -520,16 +527,11 @@ const TopologyGraph = () => {
     [handleNodeAction, handleEdgeAction, setNodes, setEdges]
   );
 
-  const determineLinkColor = (latency: number) => {
-    if (latency < 20) return "#22c55e"; // Green
-    if (latency < 100) return "#eab308"; // Yellow
-    return "#ef4444"; // Red
-  };
-
   const processRef = useRef<((data: TopologyData) => void) | null>(null);
 
   // keep ref to latest processor to avoid stale closures in socket callbacks
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
     processRef.current = processTopologyData;
   }, [processTopologyData]);
 
@@ -548,10 +550,11 @@ const TopologyGraph = () => {
         fetch("http://localhost:5000/api/topology")
           .then((res) => res.json())
           .then((currentTopo: TopologyData) => {
-            const topo = currentTopo as any;
-            const newLink = { source, target, type: "manual" };
+            const topo = currentTopo;
+            // Use explicit type to avoid any
+            const newLink: TopologyLink = { source, target, type: "manual" };
             const exists = topo.links.find(
-              (l: any) => l.source === source && l.target === target
+              (l) => l.source === source && l.target === target
             );
             if (!exists) {
               topo.links.push(newLink);
@@ -564,7 +567,7 @@ const TopologyGraph = () => {
           });
       }
     },
-    [setEdges]
+    [setEdges, handleEdgeAction]
   );
 
   const onConnectStart = useCallback((_event: React.MouseEvent | React.TouchEvent, params: OnConnectStartParams) => {
