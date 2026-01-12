@@ -3,8 +3,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MonitorCheck, Server, Wifi } from "lucide-react";
 import { memo } from "react";
 import { Handle, Position } from "reactflow";
+import type { AgentStats } from "@/types/network";
 
-const AgentNode = ({ data, id }: { data: any; id: string }) => {
+interface AgentNodeData {
+  label: string;
+  ip: string;
+  os: string;
+  stats: AgentStats | null;
+  highlight?: boolean;
+  highlightHandle?: "source" | "target";
+  [key: string]: unknown; // Allow for other ReactFlow data props if any
+}
+
+const AgentNode = ({ data }: { data: AgentNodeData }) => {
   return (
     <div
       className={`relative transition-shadow ${data?.highlight ? "shadow-lg" : ""}`}

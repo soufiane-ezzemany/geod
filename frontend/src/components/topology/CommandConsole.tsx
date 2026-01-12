@@ -2,14 +2,19 @@ import { useMemo, useState } from "react";
 // Note: requires installing `re-resizable` in the frontend
 import { Resizable } from "re-resizable";
 
+interface ParsedCommandData {
+  latency?: number;
+  [key: string]: unknown;
+}
+
 interface CommandEntry {
   id: string;
   hostname: string;
   command: string;
   status: string;
-  data: any;
+  data: unknown;
   timestamp: string;
-  parsed?: any;
+  parsed?: ParsedCommandData;
 }
 
 export default function CommandConsole({
@@ -43,7 +48,7 @@ export default function CommandConsole({
             size={{ width: "100%", height }}
             minHeight={120}
             maxHeight={Math.floor(typeof window !== "undefined" ? window.innerHeight * 0.9 : 800)}
-            onResizeStop={(e, direction, ref, d) => {
+            onResizeStop={(_e, _direction, _ref, d) => {
               setHeight((h) => Math.max(120, h + d.height));
             }}
             className="bg-white/95 border-t shadow-lg"

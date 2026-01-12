@@ -11,7 +11,7 @@ interface EdgeContextMenuProps {
   edgeId: string;
   source: string;
   target: string;
-  onAction: (action: string, edgeId: string, source: string, target: string, params?: any) => void;
+  onAction: (action: string, edgeId: string, source: string, target: string, params?: unknown) => void;
 }
 
 export function EdgeContextMenu({

@@ -12,7 +12,7 @@ import {
 interface NodeContextMenuProps {
   children: React.ReactNode;
   nodeId: string;
-  onAction: (action: string, nodeId: string, params?: any) => void;
+  onAction: (action: string, nodeId: string, params?: unknown) => void;
 }
 
 export function NodeContextMenu({ children, nodeId, onAction }: NodeContextMenuProps) {

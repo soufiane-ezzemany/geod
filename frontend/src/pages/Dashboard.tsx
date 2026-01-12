@@ -3,6 +3,7 @@ import TopologyGraph from "@/components/topology/TopologyGraph"
 import { Activity, AlertCircle, Layers, Network } from "lucide-react"
 import { useEffect, useState } from "react"
 import { io } from "socket.io-client"
+import type { TopologyData, TopologyLink, TopologyNode } from "@/types/network"
 
 export default function Dashboard() {
     const [stats, setStats] = useState({
@@ -15,7 +16,7 @@ export default function Dashboard() {
     useEffect(() => {
         const socket = io('http://localhost:5000');
 
-        const calculateStats = (nodes: any[], links: any[]) => {
+        const calculateStats = (nodes: TopologyNode[], links: TopologyLink[]) => {
             const nodeCount = nodes.length;
             const linkCount = links.length;
             
@@ -23,7 +24,7 @@ export default function Dashboard() {
             let latencyCount = 0;
             let alerts = 0;
 
-            links.forEach((l: any) => {
+            links.forEach((l) => {
                 if (l.latency) {
                     totalLatency += l.latency;
                     latencyCount++;
@@ -44,14 +45,14 @@ export default function Dashboard() {
         // Initial fetch
         fetch('http://localhost:5000/api/topology')
             .then(res => res.json())
-            .then(data => {
+            .then((data: TopologyData) => {
                 if (data.nodes && data.links) {
                     calculateStats(data.nodes, data.links);
                 }
             });
 
         // Listen for updates
-        socket.on('topology_update', (data) => {
+        socket.on('topology_update', (data: TopologyData) => {
              if (data.nodes && data.links) {
                 calculateStats(data.nodes, data.links);
             }
@@ -62,7 +63,7 @@ export default function Dashboard() {
              // For simplicity, we re-fetch the latest state or wait for next topology push
              fetch('http://localhost:5000/api/topology')
                 .then(res => res.json())
-                .then(data => calculateStats(data.nodes || [], data.links || []));
+                .then((data: TopologyData) => calculateStats(data.nodes || [], data.links || []));
         });
 
         return () => {

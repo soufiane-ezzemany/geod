@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Connection, Edge, Node } from "reactflow";
+import type { Connection, Edge, Node, OnConnectStartParams } from "reactflow";
 import ReactFlow, {
   addEdge,
   Background,
@@ -15,6 +15,11 @@ import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import CustomEdge from "./CustomEdge";
 import AgentNode from "./nodes/AgentNode";
+import type { 
+  TopologyData, 
+  NetworkStatsUpdate, 
+  LinkStatsUpdate,
+} from "@/types/network";
 
 const nodeTypes = {
   agent: AgentNode,
@@ -29,7 +34,7 @@ const TopologyGraph = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [pendingEdges, setPendingEdges] = useState<
+  const [_pendingEdges, setPendingEdges] = useState<
     Record<string, { action: "remove" | "add"; ts: number }>
   >({});
   const [connectingInfo, setConnectingInfo] = useState<{
@@ -40,7 +45,7 @@ const TopologyGraph = () => {
 
   // Define actions using useCallback to keep reference stable
   const handleNodeAction = useCallback(
-    (action: string, nodeId: string, params?: any) => {
+    (action: string, nodeId: string, params?: unknown) => {
       console.log(`Node Action: ${action} on ${nodeId}`, params);
 
       if (action === "details") {
@@ -110,8 +115,9 @@ const TopologyGraph = () => {
   );
 
   const handleEdgeAction = useCallback(
-    (action: string, edgeId: string, source: string, target: string, params?: any) => {
+    (action: string, edgeId: string, source: string, target: string, params?: unknown) => {
       console.log(`Edge Action: ${action} on ${source}->${target}`, params);
+      const safeParams = (params as Record<string, any>) || {};
 
       if (action === "disconnect") {
         // If WebSocket connected, prefer emitting remove_link so backend will broadcast update
@@ -126,9 +132,9 @@ const TopologyGraph = () => {
           setPendingEdges((p) => ({ ...p, [edgeId]: { action: "remove", ts: Date.now() } }));
 
           // Show undo toast for a few seconds
-          toast(
-            ({ id, update }) => (
-              <div>
+          toast.custom(
+            (id) => (
+              <div className="bg-white p-4 rounded-lg shadow-lg border border-slate-200 text-sm">
                 Lien déconnecté: {source} → {target}
                 <div className="mt-2 flex gap-2">
                   <button
@@ -139,12 +145,14 @@ const TopologyGraph = () => {
                         // fallback REST add
                         fetch("http://localhost:5000/api/topology")
                           .then((r) => r.json())
-                          .then((currentTopo) => {
-                            currentTopo.links.push({ source, target, type: "manual" });
+                          .then((currentTopo: TopologyData) => {
+                            // Cast to any to manipulate the list if needed, or better, type it strictly
+                            const topo = currentTopo as any; 
+                            topo.links.push({ source, target, type: "manual" });
                             return fetch("http://localhost:5000/api/topology", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify(currentTopo),
+                              body: JSON.stringify(topo),
                             });
                           });
                       }
@@ -163,13 +171,13 @@ const TopologyGraph = () => {
                           )
                         );
                       }
-                      update(id, { render: "Restauration...", icon: "↺" });
+                      toast("Restauration...", { id, icon: "↺" });
                       setTimeout(
-                        () => update(id, { render: "Restauré", icon: "✅", duration: 1000 }),
+                        () => toast("Restauré", { id, icon: "✅", duration: 1000 }),
                         1000
                       );
                     }}
-                    className="text-sm text-primary underline"
+                    className="text-sm text-primary underline font-medium hover:text-primary/80"
                   >
                     Annuler
                   </button>
@@ -184,14 +192,16 @@ const TopologyGraph = () => {
         // Fallback: Update backend topology via REST
         fetch("http://localhost:5000/api/topology")
           .then((res) => res.json())
-          .then((currentTopo) => {
-            currentTopo.links = currentTopo.links.filter(
+          .then((currentTopo: TopologyData) => {
+            // We need to cast because we are modifying the structure which might not exactly match the read one if we are strict
+            const topo = currentTopo as any;
+            topo.links = topo.links.filter(
               (l: any) => !(l.source === source && l.target === target)
             );
             return fetch("http://localhost:5000/api/topology", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(currentTopo),
+              body: JSON.stringify(topo),
             });
           })
           .then((res) => {
@@ -220,13 +230,13 @@ const TopologyGraph = () => {
           command: "bandwidth_limit",
           params: {
             interface: "eth0", // Hardcoded for prototype; needs dynamic interface lookup
-            limit: params.limit,
+            limit: safeParams.limit,
           },
         });
-        if (params.limit === "unset") {
+        if (safeParams.limit === "unset") {
           toast.success(`Removed bandwidth limit between ${source} and ${target}`);
         } else {
-          toast.success(`Set bandwidth limit to ${params.limit} between ${source} and ${target}`);
+          toast.success(`Set bandwidth limit to ${safeParams.limit} between ${source} and ${target}`);
         }
       } else if (action === "iperf") {
         if (!socket) {
@@ -249,7 +259,7 @@ const TopologyGraph = () => {
             command: "run_iperf_client",
             params: {
               target: target, // Assuming DNS/hosts resolves this, otherwise we need IP
-              duration: params.duration || 10,
+              duration: safeParams.duration || 10,
             },
           });
           toast.success(`Started Iperf Client on ${source} -> ${target}`);
@@ -261,7 +271,7 @@ const TopologyGraph = () => {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
           return;
         }
-        toast.info(`Set latency to ${params.delay}`);
+        toast.info(`Set latency to ${safeParams.delay}`);
       }
     },
     [socket]
@@ -278,12 +288,12 @@ const TopologyGraph = () => {
       // Request initial topology
       fetch("http://localhost:5000/api/topology")
         .then((res) => res.json())
-        .then((data) => processRef.current && processRef.current(data));
+        .then((data: TopologyData) => processRef.current && processRef.current(data));
     });
 
     newSocket.on("disconnect", () => setIsConnected(false));
 
-    newSocket.on("topology_update", (data) => {
+    newSocket.on("topology_update", (data: TopologyData) => {
       // Clear pending markers; server topology is authoritative
       setPendingEdges({});
       processRef.current && processRef.current(data);
@@ -337,7 +347,7 @@ const TopologyGraph = () => {
               target,
               type: "custom",
               data: { onAction: handleEdgeAction, pending: false },
-            } as any,
+            },
           ];
         });
         setPendingEdges((p) => {
@@ -360,7 +370,7 @@ const TopologyGraph = () => {
       }
     });
 
-    newSocket.on("network_stats_update", (data) => {
+    newSocket.on("network_stats_update", (data: NetworkStatsUpdate) => {
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === data.hostname) {
@@ -374,7 +384,7 @@ const TopologyGraph = () => {
       );
     });
 
-    newSocket.on("link_stats_update", (data) => {
+    newSocket.on("link_stats_update", (data: LinkStatsUpdate) => {
       setEdges((eds) =>
         eds.map((edge) => {
           if (edge.source === data.source && edge.target === data.target) {
@@ -405,23 +415,23 @@ const TopologyGraph = () => {
   // We'll make it a useCallback that depends on handlers.
 
   const processTopologyData = useCallback(
-    (data: any) => {
+    (data: TopologyData) => {
       if (!data.nodes) return;
 
-      const newNodes: Node[] = data.nodes.map((n: any, index: number) => ({
+      const newNodes: Node[] = data.nodes.map((n, index: number) => ({
         id: n.id,
         type: "agent",
         position: { x: 100 + index * 250, y: 100 + (index % 2) * 100 },
         data: {
           label: n.id,
           ip: n.ip || "Unknown",
-          os: n.os || "Linux",
+          os: (n.os as string) || "Linux",
           stats: null,
           onAction: handleNodeAction,
         },
       }));
 
-      const newEdges: Edge[] = data.links.map((l: any) => ({
+      const newEdges: Edge[] = data.links.map((l) => ({
         id: `${l.source}-${l.target}`,
         source: l.source,
         target: l.target,
@@ -469,7 +479,7 @@ const TopologyGraph = () => {
     return "#ef4444"; // Red
   };
 
-  const processRef = useRef<((data: any) => void) | null>(null);
+  const processRef = useRef<((data: TopologyData) => void) | null>(null);
 
   // keep ref to latest processor to avoid stale closures in socket callbacks
   useEffect(() => {
@@ -490,17 +500,18 @@ const TopologyGraph = () => {
       if (source && target) {
         fetch("http://localhost:5000/api/topology")
           .then((res) => res.json())
-          .then((currentTopo) => {
+          .then((currentTopo: TopologyData) => {
+            const topo = currentTopo as any;
             const newLink = { source, target, type: "manual" };
-            const exists = currentTopo.links.find(
+            const exists = topo.links.find(
               (l: any) => l.source === source && l.target === target
             );
             if (!exists) {
-              currentTopo.links.push(newLink);
+              topo.links.push(newLink);
               fetch("http://localhost:5000/api/topology", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(currentTopo),
+                body: JSON.stringify(topo),
               });
             }
           });
@@ -509,7 +520,7 @@ const TopologyGraph = () => {
     [setEdges]
   );
 
-  const onConnectStart = useCallback((event: MouseEvent, params: any) => {
+  const onConnectStart = useCallback((_event: React.MouseEvent | React.TouchEvent, params: OnConnectStartParams) => {
     // params.nodeId, params.handleType, params.handleId available
     const nodeId = params?.nodeId || undefined;
     const handleType = params?.handleType as "source" | "target" | undefined;
