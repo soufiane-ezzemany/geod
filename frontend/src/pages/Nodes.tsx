@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Server } from "lucide-react"
+import { API_ENDPOINTS } from "@/config"
 
 interface Agent {
     sid: string;
@@ -16,7 +17,7 @@ export default function Nodes() {
     const [agents, setAgents] = useState<Agent[]>([]);
 
     useEffect(() => {
-        fetch('http://localhost:5000/api/agents')
+        fetch(API_ENDPOINTS.agents)
             .then(res => res.json())
             .then(data => setAgents(data))
             .catch(err => console.error("Failed to fetch agents:", err));

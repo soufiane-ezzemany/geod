@@ -1,11 +1,12 @@
 import { addEntry, clear as clearStore, getEntries, subscribe, type Entry } from "@/lib/commandStore";
 import { useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import { BACKEND_URL } from "@/config";
 
 export function useCommandConsole() {
   const [entries, setEntries] = useState<Entry[]>(getEntries());
   useEffect(() => {
-    const socket: Socket = io("http://localhost:5000");
+    const socket: Socket = io(BACKEND_URL);
     socket.on("command_result_update", (data) => {
       const entry = {
         id: data.result?.request_id || `r_${Date.now()}`,

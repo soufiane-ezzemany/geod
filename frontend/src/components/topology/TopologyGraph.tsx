@@ -25,6 +25,7 @@ import type {
   IperfClientParams,
   ToggleMonitoringParams,
 } from "@/types/network";
+import { BACKEND_URL, API_ENDPOINTS } from "@/config";
 
 const nodeTypes = {
   agent: AgentNode,
@@ -153,12 +154,12 @@ const TopologyGraph = () => {
                         socket.emit("add_link", { source, target, data: targetEdge?.data });
                       } else {
                         // fallback REST add
-                        fetch("http://localhost:5000/api/topology")
+                        fetch(API_ENDPOINTS.topology)
                           .then((r) => r.json())
                           .then((currentTopo: TopologyData) => {
                             const topo = currentTopo; 
                             topo.links.push({ source, target, type: "manual" });
-                            return fetch("http://localhost:5000/api/topology", {
+                            return fetch(API_ENDPOINTS.topology, {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify(topo),
@@ -199,14 +200,14 @@ const TopologyGraph = () => {
         }
 
         // Fallback: Update backend topology via REST
-        fetch("http://localhost:5000/api/topology")
+        fetch(API_ENDPOINTS.topology)
           .then((res) => res.json())
           .then((currentTopo: TopologyData) => {
             const topo = currentTopo;
             topo.links = topo.links.filter(
               (l) => !(l.source === source && l.target === target)
             );
-            return fetch("http://localhost:5000/api/topology", {
+            return fetch(API_ENDPOINTS.topology, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(topo),
@@ -338,14 +339,14 @@ const TopologyGraph = () => {
 
   // Initialize Socket
   useEffect(() => {
-    const newSocket = io("http://localhost:5000");
+    const newSocket = io(BACKEND_URL);
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
       setIsConnected(true);
       console.log("Connected to backend");
       // Request initial topology
-      fetch("http://localhost:5000/api/topology")
+      fetch(API_ENDPOINTS.topology)
         .then((res) => res.json())
         .then((data: TopologyData) => processRef.current?.(data));
     });
@@ -547,7 +548,7 @@ const TopologyGraph = () => {
       const source = params.source;
       const target = params.target;
       if (source && target) {
-        fetch("http://localhost:5000/api/topology")
+        fetch(API_ENDPOINTS.topology)
           .then((res) => res.json())
           .then((currentTopo: TopologyData) => {
             const topo = currentTopo;
@@ -558,7 +559,7 @@ const TopologyGraph = () => {
             );
             if (!exists) {
               topo.links.push(newLink);
-              fetch("http://localhost:5000/api/topology", {
+              fetch(API_ENDPOINTS.topology, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(topo),

@@ -4,6 +4,7 @@ import { Activity, AlertCircle, Layers, Network } from "lucide-react"
 import { useEffect, useState } from "react"
 import { io } from "socket.io-client"
 import type { TopologyData, TopologyLink, TopologyNode } from "@/types/network"
+import { BACKEND_URL, API_ENDPOINTS } from "@/config"
 
 export default function Dashboard() {
     const [stats, setStats] = useState({
@@ -14,7 +15,7 @@ export default function Dashboard() {
     });
 
     useEffect(() => {
-        const socket = io('http://localhost:5000');
+        const socket = io(BACKEND_URL);
 
         const calculateStats = (nodes: TopologyNode[], links: TopologyLink[]) => {
             const nodeCount = nodes.length;
@@ -43,7 +44,7 @@ export default function Dashboard() {
         };
 
         // Initial fetch
-        fetch('http://localhost:5000/api/topology')
+        fetch(API_ENDPOINTS.topology)
             .then(res => res.json())
             .then((data: TopologyData) => {
                 if (data.nodes && data.links) {
@@ -61,7 +62,7 @@ export default function Dashboard() {
         socket.on('link_stats_update', () => {
              // Re-fetch full topology for accurate calculation or maintain local state
              // For simplicity, we re-fetch the latest state or wait for next topology push
-             fetch('http://localhost:5000/api/topology')
+             fetch(API_ENDPOINTS.topology)
                 .then(res => res.json())
                 .then((data: TopologyData) => calculateStats(data.nodes || [], data.links || []));
         });

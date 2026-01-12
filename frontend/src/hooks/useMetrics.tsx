@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import { BACKEND_URL } from "@/config";
 
 // Types for metrics (simplified for now)
 export interface NetworkStats {
@@ -53,8 +54,7 @@ export function MetricsProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    // TODO: Make backend URL configurable
-    const socket = io("http://localhost:5000");
+    const socket = io(BACKEND_URL);
     socketRef.current = socket;
 
     socket.on("network_stats_update", (data) => {
