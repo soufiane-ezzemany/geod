@@ -21,7 +21,8 @@ export default function CommandConsole({
 }) {
   const [filterHost, setFilterHost] = useState("");
   const [filterCmd, setFilterCmd] = useState("");
-  const [open, setOpen] = useState(true);
+  // Start closed by default
+  const [open, setOpen] = useState(false);
   const [height, setHeight] = useState<number>(320);
 
   const hosts = useMemo(() => Array.from(new Set(entries.map((e) => e.hostname))), [entries]);

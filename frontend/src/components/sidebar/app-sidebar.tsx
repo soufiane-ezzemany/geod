@@ -11,34 +11,16 @@ const data = {
       url: "/dashboard",
       icon: LayoutDashboard,
       isActive: true,
-      items: [
-        {
-          title: "Topologie",
-          url: "/dashboard",
-        },
-      ],
     },
     {
       title: "Nœuds",
       url: "/dashboard/noeuds",
       icon: Network,
-      items: [
-        {
-          title: "Liste des nœuds",
-          url: "/dashboard/noeuds",
-        },
-      ],
     },
     {
       title: "Métriques",
       url: "/dashboard/metriques",
       icon: Activity,
-      items: [
-        {
-          title: "Temps réel",
-          url: "/dashboard/metriques",
-        },
-      ],
     },
   ],
 };
