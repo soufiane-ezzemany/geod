@@ -222,22 +222,64 @@ const TopologyGraph = () => {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
           return;
         }
-        // Send command to source agent to limit outgoing traffic on the relevant interface
-        // For MVP, we send to source and hope it knows the interface or applies globally
-        // Ideally, we'd look up the interface IP matching the target IP.
         socket.emit("trigger_command", {
           target_hostname: source,
           command: "bandwidth_limit",
           params: {
-            interface: "eth0", // Hardcoded for prototype; needs dynamic interface lookup
+            interface: "eth0",
             limit: safeParams.limit,
           },
         });
-        if (safeParams.limit === "unset") {
-          toast.success(`Removed bandwidth limit between ${source} and ${target}`);
-        } else {
-          toast.success(`Set bandwidth limit to ${safeParams.limit} between ${source} and ${target}`);
+        toast.success(`Bandwidth limit: ${safeParams.limit} (Source: ${source})`);
+        
+      } else if (action === "latency") {
+        if (!socket) {
+            toast.error("WebSocket not connected");
+            return;
         }
+        socket.emit("trigger_command", {
+            target_hostname: source,
+            command: "bandwidth_limit",
+            params: {
+                interface: "eth0",
+                latency: safeParams.delay
+            }
+        });
+        toast.success(`Latency: ${safeParams.delay} (Source: ${source})`);
+
+      } else if (action === "loss") {
+        if (!socket) {
+            toast.error("WebSocket not connected");
+            return;
+        }
+        socket.emit("trigger_command", {
+            target_hostname: source,
+            command: "bandwidth_limit",
+            params: {
+                interface: "eth0",
+                loss: safeParams.loss
+            }
+        });
+        toast.success(`Packet Loss: ${safeParams.loss} (Source: ${source})`);
+
+      } else if (action === "reset_traffic") {
+        if (!socket) {
+            toast.error("WebSocket not connected");
+            return;
+        }
+        socket.emit("trigger_command", {
+            target_hostname: source,
+            command: "bandwidth_limit",
+            params: {
+                interface: "eth0",
+                // Sending explicit nulls or just empty to trigger clear
+                limit: null,
+                latency: null,
+                loss: null
+            }
+        });
+        toast.success(`Traffic control reset (Source: ${source})`);
+
       } else if (action === "iperf") {
         if (!socket) {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
@@ -264,14 +306,6 @@ const TopologyGraph = () => {
           });
           toast.success(`Started Iperf Client on ${source} -> ${target}`);
         }, 1000);
-      } else if (action === "latency") {
-        // TC netem for latency
-        // socket.emit(...)
-        if (!socket) {
-          toast.error("WebSocket not connected — impossible d'envoyer la commande.");
-          return;
-        }
-        toast.info(`Set latency to ${safeParams.delay}`);
       }
     },
     [socket]

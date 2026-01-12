@@ -245,9 +245,11 @@ class NetworkAgent:
                 result['data'] = self._list_connections()
             
             elif command == 'bandwidth_limit':
-                interface = params.get('interface')
+                interface = params.get('interface', 'eth0')
                 limit = params.get('limit')
-                result['data'] = self._set_bandwidth_limit(interface, limit)
+                latency = params.get('latency')
+                loss = params.get('loss')
+                result['data'] = self._set_traffic_control(interface, limit, latency, loss)
             
             elif command == 'start_iperf_server':
                 result['data'] = self._start_iperf_server(params)
@@ -308,19 +310,60 @@ class NetworkAgent:
         except Exception as e:
             return {'error': str(e)}
     
-    def _set_bandwidth_limit(self, interface: str, limit: str) -> Dict[str, Any]:
-        """Set bandwidth limit on interface (requires tc on Linux)"""
-        logger.warning(f"Attempting to set bandwidth limit on {interface}: {limit}")
+    def _set_traffic_control(self, interface: str, limit: Optional[str] = None, latency: Optional[str] = None, loss: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Set traffic control rules (bandwidth, latency, loss) on interface.
+        Uses 'tc' with 'netem'.
+        """
+        logger.warning(f"Setting traffic control on {interface}: limit={limit}, latency={latency}, loss={loss}")
+        
+        if platform.system() != 'Linux':
+             return {'error': 'Traffic control only supported on Linux'}
+
+        results = {}
+        
+        # 1. Clear existing rules (ignore error if none exist)
         try:
-            if platform.system() == 'Linux':
-                # Example: limit should be like "1mbit"
-                cmd = ['sudo', 'tc', 'qdisc', 'add', 'dev', interface, 'root', 'tbf', 'rate', limit, 'burst', '32kbit', 'latency', '400ms']
-                output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
-                return {'status': 'applied', 'interface': interface, 'limit': limit, 'output': output}
-            else:
-                return {'error': 'Bandwidth limiting only supported on Linux'}
+            subprocess.call(['sudo', 'tc', 'qdisc', 'del', 'dev', interface, 'root'], stderr=subprocess.DEVNULL)
+            results['clear'] = 'cleared'
+        except Exception:
+            pass
+
+        # If we are just clearing (all None), we are done
+        if not limit and not latency and not loss:
+            return {'status': 'cleared', 'interface': interface}
+
+        # 2. Build new command
+        # using netem for everything as it supports delay, loss, and rate (limited)
+        # Note: rate in netem might be limited, but sufficient for emulation.
+        # Syntax: tc qdisc add dev eth0 root netem delay 100ms loss 10% rate 1mbit
+        
+        cmd = ['sudo', 'tc', 'qdisc', 'add', 'dev', interface, 'root', 'netem']
+        
+        if latency:
+            # Ensure format is like "100ms"
+            if str(latency).isdigit(): latency = f"{latency}ms"
+            cmd.extend(['delay', str(latency)])
+        
+        if loss:
+             # Ensure format like "1%"
+            if str(loss).isdigit(): loss = f"{loss}%"
+            cmd.extend(['loss', str(loss)])
+            
+        if limit:
+             # Ensure format like "1mbit"
+            if str(limit).isdigit(): limit = f"{limit}mbit"
+            cmd.extend(['rate', str(limit)])
+            
+        try:
+            logger.info(f"Executing TC command: {' '.join(cmd)}")
+            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+            results['apply'] = 'success'
+            results['output'] = output
+            results['params'] = {'limit': limit, 'latency': latency, 'loss': loss}
+            return results
         except subprocess.CalledProcessError as e:
-            return {'error': str(e), 'output': e.output}
+            return {'error': str(e), 'output': e.output, 'command': ' '.join(cmd)}
 
     def _start_iperf_server(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Start iperf3 server"""
