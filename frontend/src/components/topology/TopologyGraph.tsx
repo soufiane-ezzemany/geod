@@ -477,6 +477,7 @@ const TopologyGraph = () => {
           label: n.id,
           ip: n.ip || "Unknown",
           os: (n.os as string) || "Linux",
+          status: (n.status as string) || "offline",
           stats: null,
           onAction: handleNodeAction,
         },

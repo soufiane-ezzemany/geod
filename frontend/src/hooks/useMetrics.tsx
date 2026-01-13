@@ -1,40 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { BACKEND_URL } from "@/config";
+import type { AgentStats } from "@/types/network";
 
-// Types for metrics (simplified for now)
-export interface NetworkStats {
-  bytes_sent: number;
-  bytes_recv: number;
-  packets_sent: number;
-  packets_recv: number;
-  errors_in: number;
-  errors_out: number;
-  drop_in: number;
-  drop_out: number;
-  active_connections: number;
-  timestamp: string;
-}
-export interface SystemStats {
-  cpu_percent: number;
-  memory: {
-    total: number;
-    available: number;
-    percent: number;
-    used: number;
-  };
-  disk: {
-    total: number;
-    used: number;
-    free: number;
-    percent: number;
-  };
-  timestamp: string;
-}
-export interface Metrics {
-  agent_id: string; // This will store the hostname
-  network: NetworkStats;
-  system: SystemStats;
+export interface Metrics extends AgentStats {
+  agent_id: string;
   timestamp: string;
 }
 

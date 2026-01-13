@@ -98,8 +98,14 @@ def handle_disconnect():
         if hostname and hostname in hostname_to_sid:
             del hostname_to_sid[hostname]
         
-        logger.info(f"Agent disconnected: {hostname} ({sid})")
-        socketio.server.emit('agent_disconnected', {'agent_id': sid, 'hostname': hostname}, namespace='/')
+            # Mark as offline in topology
+            topology_manager.add_node(hostname, data={'status': 'offline'})
+
+            logger.info(f"Agent disconnected: {hostname} ({sid})")
+            socketio.server.emit('agent_disconnected', {'agent_id': sid, 'hostname': hostname}, namespace='/')
+
+            # Broadcast updated topology so frontend sees the offline status
+            socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
 
 @socketio.on('register_agent')
 def handle_agent_registration(data):
@@ -119,7 +125,7 @@ def handle_agent_registration(data):
     hostname_to_sid[hostname] = sid
     
     # Add to topology graph as a node
-    topology_manager.add_node(hostname, data={'ip': data.get('ip_address'), 'type': 'agent'})
+    topology_manager.add_node(hostname, data={'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'})
     
     logger.info(f"Agent registered: {hostname} ({sid})")
     emit('registration_confirmed', {'agent_id': sid, 'status': 'registered'})

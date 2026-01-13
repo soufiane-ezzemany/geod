@@ -51,6 +51,7 @@ export interface TopologyNode {
   id: string;
   ip?: string;
   type?: string;
+  status?: string;
   // React Flow specific properties usually added by the library, 
   // but from backend we receive these basic fields.
   [key: string]: unknown; 

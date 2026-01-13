@@ -9,6 +9,7 @@ interface AgentNodeData {
   label: string;
   ip: string;
   os: string;
+  status?: string;
   stats: AgentStats | null;
   highlight?: boolean;
   highlightHandle?: "source" | "target";
@@ -38,9 +39,13 @@ const AgentNode = ({ data }: { data: AgentNodeData }) => {
             </CardTitle>
             <Badge
               variant="outline"
-              className="text-[10px] h-5 bg-green-500/10 text-green-600 border-green-200"
+              className={`text-[10px] h-5 ${
+                data.status === "online"
+                  ? "bg-green-500/10 text-green-600 border-green-200"
+                  : "bg-slate-500/10 text-slate-600 border-slate-200"
+              }`}
             >
-              Online
+              {data.status === "online" ? "Online" : "Offline"}
             </Badge>
           </div>
         </CardHeader>
