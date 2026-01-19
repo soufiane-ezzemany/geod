@@ -1,39 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import { BACKEND_URL } from "@/config";
+import type { AgentStats } from "@/types/network";
 
-// Types for metrics (simplified for now)
-export interface NetworkStats {
-  bytes_sent: number;
-  bytes_recv: number;
-  packets_sent: number;
-  packets_recv: number;
-  errors_in: number;
-  errors_out: number;
-  drop_in: number;
-  drop_out: number;
-  active_connections: number;
-  timestamp: string;
-}
-export interface SystemStats {
-  cpu_percent: number;
-  memory: {
-    total: number;
-    available: number;
-    percent: number;
-    used: number;
-  };
-  disk: {
-    total: number;
-    used: number;
-    free: number;
-    percent: number;
-  };
-  timestamp: string;
-}
-export interface Metrics {
+export interface Metrics extends AgentStats {
   agent_id: string;
-  network: NetworkStats;
-  system: SystemStats;
   timestamp: string;
 }
 
@@ -53,19 +24,18 @@ export function MetricsProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    // TODO: Make backend URL configurable
-    const socket = io("http://localhost:5000");
+    const socket = io(BACKEND_URL);
     socketRef.current = socket;
 
     socket.on("network_stats_update", (data) => {
       setMetrics((prev) => [
         {
-          agent_id: data.agent_id,
+          agent_id: data.hostname, // Mapping hostname to agent_id
           network: data.stats.network,
           system: data.stats.system,
           timestamp: data.timestamp,
         },
-        ...prev.slice(0, 19), // keep last 20
+        ...prev.slice(0, 50), // keep last 50
       ]);
     });
 

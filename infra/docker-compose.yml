@@ -1,0 +1,49 @@
+services:
+  backend:
+    build: ../backend
+    volumes:
+      - ../backend:/app
+    ports:
+      - "5000:5000"
+    networks:
+      - geod-net
+
+  frontend:
+    build: ../frontend
+    volumes:
+      - ../frontend/src:/app/src
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:5000
+    networks:
+      - geod-net
+    command: npm run dev -- --host 0.0.0.0
+
+  agent-paris:
+    build: ../agent
+    command: python agent.py --backend http://host.docker.internal:5000
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+  agent-ny:
+    build: ../agent
+    command: python agent.py --backend http://host.docker.internal:5000
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+  agent-tokyo:
+    build: ../agent
+    command: python agent.py --backend http://host.docker.internal:5000
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+networks:
+  geod-net:
+    driver: bridge

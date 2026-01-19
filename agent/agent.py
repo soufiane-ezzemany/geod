@@ -10,6 +10,7 @@ import socket
 import time
 import logging
 import subprocess
+import json
 from typing import Dict, Any, Optional
 from datetime import datetime
 import threading
@@ -39,6 +40,7 @@ class NetworkAgent:
         self.running = False
         self.stats_interval = 5
         self.heartbeat_interval = 10
+        self.iperf_process = None
         
         self._register_handlers()
         
@@ -239,15 +241,24 @@ class NetworkAgent:
                 target = params.get('target', '8.8.8.8')
                 result['data'] = self._traceroute(target)
             
-
-            
             elif command == 'list_connections':
                 result['data'] = self._list_connections()
             
             elif command == 'bandwidth_limit':
-                interface = params.get('interface')
+                interface = params.get('interface', 'eth0')
                 limit = params.get('limit')
-                result['data'] = self._set_bandwidth_limit(interface, limit)
+                latency = params.get('latency')
+                loss = params.get('loss')
+                result['data'] = self._set_traffic_control(interface, limit, latency, loss)
+            
+            elif command == 'start_iperf_server':
+                result['data'] = self._start_iperf_server(params)
+
+            elif command == 'run_iperf_client':
+                result['data'] = self._run_iperf_client(params)
+
+            elif command == 'stop_iperf':
+                result['data'] = self._stop_iperf()
             
             else:
                 result['status'] = 'error'
@@ -299,21 +310,120 @@ class NetworkAgent:
         except Exception as e:
             return {'error': str(e)}
     
+    def _set_traffic_control(self, interface: str, limit: Optional[str] = None, latency: Optional[str] = None, loss: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Set traffic control rules (bandwidth, latency, loss) on interface.
+        Uses 'tc' with 'netem'.
+        """
+        logger.warning(f"Setting traffic control on {interface}: limit={limit}, latency={latency}, loss={loss}")
+        
+        if platform.system() != 'Linux':
+             return {'error': 'Traffic control only supported on Linux'}
 
-    
-    def _set_bandwidth_limit(self, interface: str, limit: str) -> Dict[str, Any]:
-        """Set bandwidth limit on interface (requires tc on Linux)"""
-        logger.warning(f"Attempting to set bandwidth limit on {interface}: {limit}")
+        results = {}
+        
+        # 1. Clear existing rules (ignore error if none exist)
         try:
-            if platform.system() == 'Linux':
-                # Example: limit should be like "1mbit"
-                cmd = ['sudo', 'tc', 'qdisc', 'add', 'dev', interface, 'root', 'tbf', 'rate', limit, 'burst', '32kbit', 'latency', '400ms']
-                output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
-                return {'status': 'applied', 'interface': interface, 'limit': limit, 'output': output}
-            else:
-                return {'error': 'Bandwidth limiting only supported on Linux'}
+            subprocess.call(['tc', 'qdisc', 'del', 'dev', interface, 'root'], stderr=subprocess.DEVNULL)
+            results['clear'] = 'cleared'
+        except Exception:
+            pass
+
+        # If we are just clearing (all None), we are done
+        if not limit and not latency and not loss:
+            return {'status': 'cleared', 'interface': interface}
+
+        # 2. Build new command
+        # using netem for everything as it supports delay, loss, and rate (limited)
+        # Note: rate in netem might be limited, but sufficient for emulation.
+        # Syntax: tc qdisc add dev eth0 root netem delay 100ms loss 10% rate 1mbit
+        
+        cmd = ['tc', 'qdisc', 'add', 'dev', interface, 'root', 'netem']
+        
+        if latency:
+            # Ensure format is like "100ms"
+            if str(latency).isdigit(): latency = f"{latency}ms"
+            cmd.extend(['delay', str(latency)])
+        
+        if loss:
+             # Ensure format like "1%"
+            if str(loss).isdigit(): loss = f"{loss}%"
+            cmd.extend(['loss', str(loss)])
+            
+        if limit:
+             # Ensure format like "1mbit"
+            if str(limit).isdigit(): limit = f"{limit}mbit"
+            cmd.extend(['rate', str(limit)])
+            
+        try:
+            logger.info(f"Executing TC command: {' '.join(cmd)}")
+            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+            results['apply'] = 'success'
+            results['output'] = output
+            results['params'] = {'limit': limit, 'latency': latency, 'loss': loss}
+            return results
+        except subprocess.CalledProcessError as e:
+            return {'error': str(e), 'output': e.output, 'command': ' '.join(cmd)}
+
+    def _start_iperf_server(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Start iperf3 server"""
+        try:
+            port = params.get('port', 5201)
+            # Kill existing if any
+            self._stop_iperf()
+            
+            cmd = ['iperf3', '-s', '-p', str(port), '-D'] # Daemon mode
+            # Note: subprocess.Popen is better for background tasks than check_output
+            # But -D makes it daemonize itself, so check_output returns quickly? 
+            # Actually, -D makes it fork. 
+            subprocess.check_call(cmd)
+            return {'status': 'started', 'port': port}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def _run_iperf_client(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run iperf3 client"""
+        try:
+            target = params.get('target')
+            duration = params.get('duration', 5)
+            port = params.get('port', 5201)
+            
+            if not target:
+                return {'error': 'Target required'}
+            
+            cmd = ['iperf3', '-c', target, '-p', str(port), '-t', str(duration), '-J']
+            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+            result_json = json.loads(output)
+            
+            # Extract key metrics
+            end_sum = result_json.get('end', {}).get('sum_sent', {})
+            bits_per_second = end_sum.get('bits_per_second', 0)
+            
+            return {
+                'output': result_json,
+                'summary': {
+                    'bandwidth_mbps': bits_per_second / 1_000_000,
+                    'bytes_sent': end_sum.get('bytes', 0)
+                }
+            }
         except subprocess.CalledProcessError as e:
             return {'error': str(e), 'output': e.output}
+        except json.JSONDecodeError:
+            return {'error': 'Failed to parse iperf JSON output', 'output': output}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def _stop_iperf(self):
+        """Stop iperf processes"""
+        try:
+            # This is a bit aggressive, kills all iperf3 instances
+            if platform.system() == 'Linux' or platform.system() == 'Darwin':
+                subprocess.call(['pkill', 'iperf3'])
+            elif platform.system() == 'Windows':
+                subprocess.call(['taskkill', '/F', '/IM', 'iperf3.exe'])
+            return {'status': 'stopped'}
+        except Exception as e:
+            return {'error': str(e)}
     
     def start(self):
         """Start the agent"""
