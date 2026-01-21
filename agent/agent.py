@@ -219,6 +219,7 @@ class NetworkAgent:
         result = {
             'request_id': request_id,
             'command': command,
+            'params': params,
             'status': 'success',
             'data': None,
             'error': None,

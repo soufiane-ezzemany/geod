@@ -8,6 +8,7 @@ import threading
 import time
 import json
 import os
+import re
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'geod-secret-key'
@@ -127,6 +128,21 @@ def handle_agent_registration(data):
     # Add to topology graph as a node
     topology_manager.add_node(hostname, data={'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'})
     
+    # Auto-connect to all existing agents (Full Mesh)
+    try:
+        current_topo = topology_manager.get_topology_json()
+        existing_nodes = [n['id'] for n in current_topo.get('nodes', []) if n['id'] != hostname and n.get('type') == 'agent']
+        
+        for other_node in existing_nodes:
+            # Create bidirectional links if they don't exist
+            # Note: add_link (via networkx add_edge) updates attributes if edge exists, 
+            # so we can safely call it. We set monitoring=True by default.
+            topology_manager.add_link(hostname, other_node, {'monitoring': True, 'type': 'auto'})
+            topology_manager.add_link(other_node, hostname, {'monitoring': True, 'type': 'auto'})
+            logger.info(f"Auto-connected {hostname} <-> {other_node}")
+    except Exception as e:
+        logger.error(f"Error in auto-connection logic: {e}")
+
     logger.info(f"Agent registered: {hostname} ({sid})")
     emit('registration_confirmed', {'agent_id': sid, 'status': 'registered'})
     socketio.server.emit('agent_connected', agent_info, namespace='/')
@@ -168,32 +184,43 @@ def handle_command_result(data):
 
     if command == 'ping' and result_data:
         target_ip = result_data.get('target')
-        # Find target hostname from IP (reverse lookup in our connected agents)
-        target_hostname = None
-        for h_name, s_id in hostname_to_sid.items():
-            if sid_to_agent[s_id].get('ip_address') == target_ip:
-                target_hostname = h_name
-                break
+        params = data.get('params', {})
+        
+        # Primary method: Use echoed target_hostname from params
+        target_hostname = params.get('target_hostname')
+        
+        # Fallback method: Reverse lookup from IP
+        if not target_hostname and target_ip:
+            for h_name, s_id in hostname_to_sid.items():
+                if sid_to_agent[s_id].get('ip_address') == target_ip:
+                    target_hostname = h_name
+                    break
         
         if target_hostname:
-            # Parse ping output to get latency (simplified)
-            # This is a basic parser; in production, use regex robustly
+            # Parse ping output to get latency
             output = result_data.get('output', '')
             latency = -1
-            if 'time=' in output:
+            
+            # Linux/Mac/Unix: time=12.3 ms
+            # Windows: Average = 12ms
+            
+            # Try Linux/Unix pattern first
+            # Matches: time=12.3 or time=12.3ms
+            linux_match = re.search(r'time=([\d.]+)', output)
+            if linux_match:
                 try:
-                    # Linux format: time=12.3 ms
-                    part = output.split('time=')[1].split(' ')[0]
-                    latency = float(part)
-                except:
+                    latency = float(linux_match.group(1))
+                except ValueError:
                     pass
-            elif 'Average =' in output:
-                 # Windows format: Average = 12ms
-                 try:
-                    part = output.split('Average =')[1].strip().split('ms')[0]
-                    latency = float(part)
-                 except:
-                    pass
+            else:
+                # Try Windows pattern
+                # Matches: Average = 12ms or Average=12ms
+                win_match = re.search(r'Average\s*=\s*(\d+)', output)
+                if win_match:
+                    try:
+                        latency = float(win_match.group(1))
+                    except ValueError:
+                        pass
             
             logger.info(f"Link Update: {source_hostname} -> {target_hostname} : {latency}ms")
             
@@ -206,11 +233,13 @@ def handle_command_result(data):
                     'latency': latency
                 }, namespace='/')
 
-    # Always broadcast the raw result to frontend (for console logs etc)
-    socketio.server.emit('command_result_update', {
-        'hostname': source_hostname,
-        'result': data
-    }, namespace='/')
+    # Only broadcast to console if it's NOT a background monitoring request
+    request_id = data.get('request_id', '')
+    if not str(request_id).startswith('monitor_'):
+        socketio.server.emit('command_result_update', {
+            'hostname': source_hostname,
+            'result': data
+        }, namespace='/')
 
 @socketio.on('trigger_command')
 def handle_trigger_command(data):
@@ -234,69 +263,6 @@ def handle_trigger_command(data):
         return {'status': 'error', 'message': 'Agent not found'}
 
 
-@socketio.on('remove_link')
-def handle_remove_link(data):
-    """
-    Remove a link from the topology graph. Expects: {'source': 'A', 'target': 'B'}
-    """
-    source = data.get('source')
-    target = data.get('target')
-    try:
-        with topology_manager.lock:
-            if topology_manager.graph.has_edge(source, target):
-                topology_manager.graph.remove_edge(source, target)
-        # Broadcast updated topology to all clients
-        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
-        # Emit explicit ack only to the requesting socket
-        emit('link_removed_ack', {'source': source, 'target': target, 'status': 'removed'}, room=request.sid)
-        return {'status': 'removed'}
-    except Exception as e:
-        logger.error(f"Error removing link: {e}")
-        emit('link_removed_ack', {'source': source, 'target': target, 'status': 'error', 'message': str(e)}, room=request.sid)
-        return {'status': 'error', 'message': str(e)}
-
-
-@socketio.on('add_link')
-def handle_add_link(data):
-    """
-    Add a link to the topology graph. Expects: {'source': 'A', 'target': 'B', 'data': {...}}
-    """
-    source = data.get('source')
-    target = data.get('target')
-    link_data = data.get('data', {})
-    try:
-        with topology_manager.lock:
-            topology_manager.graph.add_edge(source, target, **(link_data or {}))
-        # Broadcast updated topology to all clients
-        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
-        # Emit explicit ack only to the requesting socket
-        emit('link_added_ack', {'source': source, 'target': target, 'status': 'added'}, room=request.sid)
-        return {'status': 'added'}
-    except Exception as e:
-        logger.error(f"Error adding link: {e}")
-        emit('link_added_ack', {'source': source, 'target': target, 'status': 'error', 'message': str(e)}, room=request.sid)
-        return {'status': 'error', 'message': str(e)}
-
-@socketio.on('toggle_link_monitoring')
-def handle_toggle_link_monitoring(data):
-    """
-    Toggle monitoring for a specific link. Expects: {'source': 'A', 'target': 'B', 'enabled': True/False}
-    """
-    source = data.get('source')
-    target = data.get('target')
-    enabled = data.get('enabled', True)
-    try:
-        with topology_manager.lock:
-            if topology_manager.graph.has_edge(source, target):
-                topology_manager.graph[source][target]['monitoring'] = enabled
-        
-        # Broadcast updated topology to all clients
-        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
-        return {'status': 'updated'}
-    except Exception as e:
-        logger.error(f"Error toggling monitoring: {e}")
-        return {'status': 'error', 'message': str(e)}
-
 # --- Background Monitoring Task ---
 
 def monitor_links_loop():
@@ -314,10 +280,6 @@ def monitor_links_loop():
             for link in links:
                 source = link.get('source')
                 target = link.get('target')
-                monitoring_enabled = link.get('monitoring', True) # Default to True
-
-                if not monitoring_enabled:
-                    continue
                 
                 # Check if both are connected
                 if source in hostname_to_sid and target in hostname_to_sid:
@@ -329,7 +291,7 @@ def monitor_links_loop():
                         # Instruct source to ping target
                         socketio.emit('execute_command', {
                             'command': 'ping',
-                            'params': {'target': target_ip, 'count': 1},
+                            'params': {'target': target_ip, 'count': 1, 'target_hostname': target},
                             'request_id': f"monitor_{source}_{target}_{int(time.time())}"
                         }, room=source_sid)
                         
