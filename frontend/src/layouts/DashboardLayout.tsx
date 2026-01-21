@@ -2,6 +2,7 @@ import Header from "@/components/header/header";
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import CommandConsole from "@/components/topology/CommandConsole";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { useCommandConsole } from "@/hooks/useCommandConsole";
 import { Outlet } from "react-router";
 
@@ -16,6 +17,7 @@ export default function DashboardLayout() {
           <Outlet />
         </div>
         <CommandConsole entries={entries} onClear={clear} />
+        <Toaster />
       </SidebarInset>
     </SidebarProvider>
   );
