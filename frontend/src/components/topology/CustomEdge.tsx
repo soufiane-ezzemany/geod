@@ -1,5 +1,13 @@
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps, getBezierPath } from "reactflow";
 import { EdgeContextMenu } from "./context-menus/EdgeContextMenu";
+import type { TopologyLink } from "@/types/network";
+
+const getLatencyColor = (latency?: number) => {
+    if (latency === undefined || latency === null) return "text-slate-400";
+    if (latency < 20) return "text-green-600";
+    if (latency < 100) return "text-yellow-600";
+    return "text-red-600";
+};
 
 export default function CustomEdge({
   id,
@@ -12,10 +20,10 @@ export default function CustomEdge({
   style = {},
   markerEnd,
   data,
-  label,
   source,
   target,
 }: EdgeProps) {
+  // Use standard Bezier path, no offset needed for single edge
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -25,10 +33,26 @@ export default function CustomEdge({
     targetPosition,
   });
 
+  const forward = data?.forward as TopologyLink | undefined;
+  const backward = data?.backward as TopologyLink | undefined;
+  const isOnline = data?.isNodesOnline;
+
+  const renderLinkStatus = (link?: TopologyLink) => {
+      if (!link) return <span className="text-slate-300">-</span>;
+      if (link.monitoring === false) return <span className="text-slate-400">Paused</span>;
+      if (!isOnline) return <span className="text-slate-400">Offline</span>;
+      
+      return (
+          <span className={`font-mono font-medium ${getLatencyColor(link.latency)}`}>
+            {link.latency ? `${link.latency}ms` : "..."}
+          </span>
+      );
+  };
+
   return (
     <>
       <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
-      {/* Invisible wider path for easier clicking (but don't block label pointer events) */}
+      {/* Invisible wider path for interaction */}
       <path
         d={edgePath}
         strokeWidth={20}
@@ -41,46 +65,32 @@ export default function CustomEdge({
         <EdgeContextMenu 
             edgeId={id} 
             source={source} 
-            target={target} 
-            monitoring={data?.monitoring} 
+            target={target}
+            data={data} // Pass unified data
             onAction={data?.onAction}
         >
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-              fontSize: 12,
               pointerEvents: "all",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
             }}
-            className="nodrag nopan bg-white px-2 py-1 rounded shadow-sm border text-xs font-mono cursor-context-menu hover:bg-slate-50"
+            className="nodrag nopan bg-white/90 backdrop-blur border shadow-sm rounded-md px-2 py-1 flex flex-col items-center gap-0.5 text-[10px] cursor-context-menu hover:bg-white hover:shadow-md transition-all"
           >
-            {/* Show a small spinner when edge is pending (optimistic remove/add) */}
-            {data?.pending ? (
-              <svg
-                className="animate-spin h-3 w-3 text-slate-600"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                ></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                ></path>
-              </svg>
-            ) : null}
-            <span>{label || "•••"}</span>
+             {/* Forward Row (Source -> Target) */}
+             <div className="flex items-center gap-1 w-full justify-between min-w-[60px]">
+                <span className="text-slate-400">→</span>
+                {renderLinkStatus(forward)}
+             </div>
+             
+             {/* Separator */}
+             <div className="w-full h-[1px] bg-slate-100" />
+
+             {/* Backward Row (Target -> Source) */}
+             <div className="flex items-center gap-1 w-full justify-between min-w-[60px]">
+                <span className="text-slate-400">←</span>
+                {renderLinkStatus(backward)}
+             </div>
           </div>
         </EdgeContextMenu>
       </EdgeLabelRenderer>

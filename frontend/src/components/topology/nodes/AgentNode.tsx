@@ -83,41 +83,17 @@ const AgentNode = ({ data }: { data: AgentNodeData }) => {
       <Handle
         type="target"
         position={Position.Top}
-        className={`w-4 h-4 ${
-          data?.highlightHandle === "target"
-            ? "bg-lime-500"
-            : data?.highlightHandle === "source"
-            ? "bg-fuchsia-500"
-            : "bg-sky-600"
-        } rounded-full ring-2 ring-white hover:scale-110 transition-transform cursor-pointer z-50 ${
-          data?.highlightHandle === "target" ? "ring-4 ring-lime-300 scale-110 handle-pulse" : ""
-        }`}
+        className="opacity-0 pointer-events-none w-1 h-1"
         style={{
-          boxSizing: "content-box",
-          width: 14,
-          height: 14,
-          borderRadius: 8,
-          transform: "translateX(-2px)",
+          visibility: 'hidden'
         }}
       />
       <Handle
         type="source"
         position={Position.Bottom}
-        className={`w-4 h-4 ${
-          data?.highlightHandle === "source"
-            ? "bg-fuchsia-500"
-            : data?.highlightHandle === "target"
-            ? "bg-lime-500"
-            : "bg-sky-600"
-        } rounded-full ring-2 ring-white hover:scale-110 transition-transform cursor-pointer z-50 ${
-          data?.highlightHandle === "source" ? "ring-4 ring-fuchsia-300 scale-110 handle-pulse" : ""
-        }`}
+        className="opacity-0 pointer-events-none w-1 h-1"
         style={{
-          boxSizing: "content-box",
-          width: 14,
-          height: 14,
-          borderRadius: 8,
-          transform: "translateX(2px)",
+            visibility: 'hidden'
         }}
       />
     </div>

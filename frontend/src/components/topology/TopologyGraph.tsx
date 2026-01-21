@@ -1,12 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Connection, Edge, Node, OnConnectStartParams } from "reactflow";
+import type { Edge, Node } from "reactflow";
 import ReactFlow, {
-  addEdge,
   Background,
   Controls,
-  MarkerType,
   useEdgesState,
   useNodesState,
 } from "reactflow";
@@ -15,15 +13,14 @@ import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import CustomEdge from "./CustomEdge";
 import AgentNode from "./nodes/AgentNode";
+import { NodeConfigPanel } from "./NodeConfigPanel";
 import type { 
   TopologyData, 
   NetworkStatsUpdate, 
   LinkStatsUpdate,
-  TopologyLink,
   CommandParams,
   BandwidthParams,
   IperfClientParams,
-  ToggleMonitoringParams,
 } from "@/types/network";
 import { BACKEND_URL, API_ENDPOINTS } from "@/config";
 
@@ -49,11 +46,11 @@ const TopologyGraph = () => {
   const [, setPendingEdges] = useState<
     Record<string, { action: "remove" | "add"; ts: number }>
   >({});
-  const [connectingInfo, setConnectingInfo] = useState<{
-    nodeId?: string;
-    handleType?: "source" | "target";
-    handleId?: string;
-  } | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+      setSelectedNodeId(node.id);
+  }, []);
 
   // Define actions using useCallback to keep reference stable
   const handleNodeAction = useCallback(
@@ -121,169 +118,50 @@ const TopologyGraph = () => {
           params: {},
         });
         toast.success(`Serveur Iperf arrêté sur ${nodeId}`);
-      }
-    },
-    [socket]
-  );
-
-  const handleEdgeAction = useCallback(
-    (action: string, edgeId: string, source: string, target: string, params?: CommandParams) => {
-      console.log(`Edge Action: ${action} on ${source}->${target}`, params);
       
-      if (action === "disconnect") {
-        // If WebSocket connected, prefer emitting remove_link so backend will broadcast update
-        if (socket && socket.connected) {
-          // Find the edge object so we can restore if user clicks Undo
-          const targetEdge = edges.find((e) => e.id === edgeId);
-          socket.emit("remove_link", { source, target });
-          // Mark edge as pending removal (don't immediately remove so user sees spinner)
-          setEdges((eds) =>
-            eds.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, pending: true } } : e))
-          );
-          setPendingEdges((p) => ({ ...p, [edgeId]: { action: "remove", ts: Date.now() } }));
-
-          // Show undo toast for a few seconds
-          toast.custom(
-            (id) => (
-              <div className="bg-white p-4 rounded-lg shadow-lg border border-slate-200 text-sm">
-                Lien déconnecté: {source} → {target}
-                <div className="mt-2 flex gap-2">
-                  <button
-                    onClick={() => {
-                      if (socket && socket.connected) {
-                        socket.emit("add_link", { source, target, data: targetEdge?.data });
-                      } else {
-                        // fallback REST add
-                        fetch(API_ENDPOINTS.topology)
-                          .then((r) => r.json())
-                          .then((currentTopo: TopologyData) => {
-                            const topo = currentTopo; 
-                            topo.links.push({ source, target, type: "manual" });
-                            return fetch(API_ENDPOINTS.topology, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify(topo),
-                            });
-                          });
-                      }
-                      // clear pending marker and restore locally if we have the original
-                      setPendingEdges((p) => {
-                        const copy = { ...p };
-                        delete copy[edgeId];
-                        return copy;
-                      });
-                      if (targetEdge) {
-                        setEdges((eds) =>
-                          eds.map((e) =>
-                            e.id === edgeId
-                              ? { ...targetEdge, data: { ...targetEdge.data, pending: false } }
-                              : e
-                          )
-                        );
-                      }
-                      toast("Restauration...", { id, icon: "↺" });
-                      setTimeout(
-                        () => toast("Restauré", { id, icon: "✅", duration: 1000 }),
-                        1000
-                      );
-                    }}
-                    className="text-sm text-primary underline font-medium hover:text-primary/80"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            ),
-            { duration: 8000 }
-          );
-          return;
-        }
-
-        // Fallback: Update backend topology via REST
-        fetch(API_ENDPOINTS.topology)
-          .then((res) => res.json())
-          .then((currentTopo: TopologyData) => {
-            const topo = currentTopo;
-            topo.links = topo.links.filter(
-              (l) => !(l.source === source && l.target === target)
-            );
-            return fetch(API_ENDPOINTS.topology, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(topo),
-            });
-          })
-          .then((res) => {
-            if (!res.ok) throw new Error("Erreur lors de la suppression du lien");
-            // For REST fallback, remove locally after confirmation
-            setEdges((eds) => eds.filter((e) => e.id !== edgeId));
-            toast.success(`Lien déconnecté: ${source} → ${target}`);
-          })
-          .catch((err) => {
-            toast.error("Impossible de déconnecter le lien. Veuillez réessayer.");
-            console.error(err);
-          });
-        return;
-      }
-
-      if (action === "bandwidth") {
-        if (!socket) {
-          toast.error("WebSocket not connected — impossible d'envoyer la commande.");
-          return;
-        }
+      // --- Traffic Control Actions (Moved from Edge) ---
+      } else if (action === "bandwidth") {
         const bwParams = params as BandwidthParams;
         socket.emit("trigger_command", {
-          target_hostname: source,
+          target_hostname: nodeId,
           command: "bandwidth_limit",
           params: {
             interface: "eth0",
             limit: bwParams?.limit,
           },
         });
-        toast.success(`Bandwidth limit: ${bwParams?.limit} (Source: ${source})`);
+        toast.success(`Bandwidth limit: ${bwParams?.limit} (Node: ${nodeId})`);
         
       } else if (action === "latency") {
-        if (!socket) {
-            toast.error("WebSocket not connected");
-            return;
-        }
         const latParams = params as BandwidthParams;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const delayVal = (params as any)?.delay || latParams?.latency;
 
         socket.emit("trigger_command", {
-            target_hostname: source,
+            target_hostname: nodeId,
             command: "bandwidth_limit",
             params: {
                 interface: "eth0",
                 latency: delayVal
             }
         });
-        toast.success(`Latency: ${delayVal} (Source: ${source})`);
+        toast.success(`Latency: ${delayVal} (Node: ${nodeId})`);
 
       } else if (action === "loss") {
-        if (!socket) {
-            toast.error("WebSocket not connected");
-            return;
-        }
         const lossParams = params as BandwidthParams;
         socket.emit("trigger_command", {
-            target_hostname: source,
+            target_hostname: nodeId,
             command: "bandwidth_limit",
             params: {
                 interface: "eth0",
                 loss: lossParams?.loss
             }
         });
-        toast.success(`Packet Loss: ${lossParams?.loss} (Source: ${source})`);
+        toast.success(`Packet Loss: ${lossParams?.loss} (Node: ${nodeId})`);
 
       } else if (action === "reset_traffic") {
-        if (!socket) {
-            toast.error("WebSocket not connected");
-            return;
-        }
         socket.emit("trigger_command", {
-            target_hostname: source,
+            target_hostname: nodeId,
             command: "bandwidth_limit",
             params: {
                 interface: "eth0",
@@ -293,19 +171,17 @@ const TopologyGraph = () => {
                 loss: null
             }
         });
-        toast.success(`Traffic control reset (Source: ${source})`);
+        toast.success(`Traffic control reset (Node: ${nodeId})`);
+      }
+    },
+    [socket]
+  );
 
-      } else if (action === "toggle_monitoring") {
-         if (!socket) return;
-         const monParams = params as ToggleMonitoringParams;
-         socket.emit("toggle_link_monitoring", {
-             source,
-             target,
-             enabled: monParams?.enabled
-         });
-         toast.info(monParams?.enabled ? "Monitoring Resumed" : "Monitoring Paused");
-
-      } else if (action === "iperf") {
+  const handleEdgeAction = useCallback(
+    (action: string, edgeId: string, source: string, target: string, params?: CommandParams) => {
+      console.log(`Edge Action: ${action} on ${source}->${target}`, params);
+      
+      if (action === "iperf") {
         if (!socket) {
           toast.error("WebSocket not connected — impossible d'envoyer la commande.");
           return;
@@ -334,7 +210,7 @@ const TopologyGraph = () => {
         }, 1000);
       }
     },
-    [socket, edges, setEdges]
+    [socket]
   );
 
   // Initialize Socket
@@ -445,14 +321,35 @@ const TopologyGraph = () => {
     });
 
     newSocket.on("link_stats_update", (data: LinkStatsUpdate) => {
+      const sortedIds = [data.source, data.target].sort();
+      const edgeId = `${sortedIds[0]}-${sortedIds[1]}`;
+
       setEdges((eds) =>
         eds.map((edge) => {
-          if (edge.source === data.source && edge.target === data.target) {
+          if (edge.id === edgeId) {
+            // Clone data to avoid mutation
+            const newData = { ...edge.data };
+            const updatedLatency = data.latency;
+
+            // Update the specific direction stats
+            if (data.source === sortedIds[0]) {
+               // Forward update
+               newData.forward = { ...newData.forward, latency: updatedLatency };
+            } else {
+               // Backward update
+               newData.backward = { ...newData.backward, latency: updatedLatency };
+            }
+
+            // Recalculate color based on max latency
+            const lat1 = newData.forward?.latency || 0;
+            const lat2 = newData.backward?.latency || 0;
+            const maxLat = Math.max(lat1, lat2);
+            const newColor = determineLinkColor(maxLat);
+
             return {
               ...edge,
-              label: `${data.latency}ms`,
-              animated: true,
-              style: { stroke: determineLinkColor(data.latency) },
+              style: { ...edge.style, stroke: newColor },
+              data: newData,
             };
           }
           return edge;
@@ -483,23 +380,85 @@ const TopologyGraph = () => {
         },
       }));
 
-      const newEdges: Edge[] = data.links.map((l) => ({
-        id: `${l.source}-${l.target}`,
-        source: l.source,
-        target: l.target,
-        type: "custom", // Use our custom edge
-        label: l.monitoring === false ? "Paused" : (l.latency ? `${l.latency}ms` : "Connecting..."),
-        animated: l.monitoring !== false,
-        style: { 
-            stroke: l.monitoring === false ? "#cbd5e1" : determineLinkColor(l.latency || 0),
-            strokeDasharray: l.monitoring === false ? "5,5" : "none",
-        },
-        markerEnd: { type: MarkerType.ArrowClosed },
-        data: {
-          onAction: handleEdgeAction,
-          monitoring: l.monitoring !== false,
-        },
-      }));
+      // Helper to find node status
+      const getNodeStatus = (nodeId: string) => {
+        const n = data.nodes.find((x) => x.id === nodeId);
+        return n ? (n.status as string) : "offline";
+      };
+
+      // Group links by pair to create unified bidirectional edges
+      const linkPairs = new Map<string, { forward?: TopologyLink; backward?: TopologyLink }>();
+
+      data.links.forEach((l) => {
+        // Create a consistent key for the pair (e.g., "A-B")
+        // We always store the edge with the sorted key as base
+        const sortedIds = [l.source, l.target].sort();
+        const pairKey = `${sortedIds[0]}-${sortedIds[1]}`;
+
+        if (!linkPairs.has(pairKey)) {
+          linkPairs.set(pairKey, {});
+        }
+
+        const entry = linkPairs.get(pairKey)!;
+        // Determine if this is the "forward" (A->B) or "backward" (B->A) link relative to the sorted key
+        if (l.source === sortedIds[0]) {
+          entry.forward = l;
+        } else {
+          entry.backward = l;
+        }
+      });
+
+      const newEdges: Edge[] = [];
+
+      linkPairs.forEach((pair, key) => {
+        const [source, target] = key.split("-");
+        const sourceStatus = getNodeStatus(source);
+        const targetStatus = getNodeStatus(target);
+        
+        // A link is "active" for visual purposes if both nodes are online
+        const isNodesOnline = sourceStatus === "online" && targetStatus === "online";
+        
+        // We consider the edge "monitoring" if at least one direction is monitoring
+        const isMonitoring = (pair.forward?.monitoring !== false) || (pair.backward?.monitoring !== false);
+
+        // Calculate aggregate label or state
+        // We will pass the full objects to CustomEdge to handle the rendering
+        
+        let strokeColor = isNodesOnline ? "#64748b" : "#cbd5e1";
+        
+        if (isNodesOnline && isMonitoring) {
+             const latForward = pair.forward?.latency;
+             const latBackward = pair.backward?.latency;
+             
+             // If we have at least one latency reading, determine color based on the worst (max) latency
+             if (latForward !== undefined || latBackward !== undefined) {
+                 const val1 = latForward || 0;
+                 const val2 = latBackward || 0;
+                 const maxLat = Math.max(val1, val2);
+                 strokeColor = determineLinkColor(maxLat);
+             }
+        }
+
+        newEdges.push({
+          id: key,
+          source: source,
+          target: target,
+          type: "custom",
+          animated: isNodesOnline && isMonitoring,
+          style: {
+            stroke: strokeColor,
+            strokeWidth: 2,
+            strokeDasharray: isNodesOnline ? "none" : "5,5",
+            opacity: isNodesOnline ? 1 : 0.5,
+          },
+          data: {
+            onAction: handleEdgeAction,
+            forward: pair.forward,
+            backward: pair.backward,
+            isNodesOnline,
+          },
+        });
+      });
 
       setNodes((currentNodes) => {
         return newNodes.map((nn) => {
@@ -537,75 +496,6 @@ const TopologyGraph = () => {
     processRef.current = processTopologyData;
   }, [processTopologyData]);
 
-  const onConnect = useCallback(
-    (params: Connection) => {
-      setEdges((eds) =>
-        addEdge(
-          { ...params, type: "custom", animated: true, data: { onAction: handleEdgeAction } },
-          eds
-        )
-      );
-
-      const source = params.source;
-      const target = params.target;
-      if (source && target) {
-        fetch(API_ENDPOINTS.topology)
-          .then((res) => res.json())
-          .then((currentTopo: TopologyData) => {
-            const topo = currentTopo;
-            // Use explicit type to avoid any
-            const newLink: TopologyLink = { source, target, type: "manual" };
-            const exists = topo.links.find(
-              (l) => l.source === source && l.target === target
-            );
-            if (!exists) {
-              topo.links.push(newLink);
-              fetch(API_ENDPOINTS.topology, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(topo),
-              });
-            }
-          });
-      }
-    },
-    [setEdges, handleEdgeAction]
-  );
-
-  const onConnectStart = useCallback((_event: React.MouseEvent | React.TouchEvent, params: OnConnectStartParams) => {
-    // params.nodeId, params.handleType, params.handleId available
-    const nodeId = params?.nodeId || undefined;
-    const handleType = params?.handleType as "source" | "target" | undefined;
-    const handleId = params?.handleId || undefined;
-    setConnectingInfo({ nodeId, handleType, handleId });
-  }, []);
-
-  const onConnectEnd = useCallback(() => {
-    setConnectingInfo(null);
-  }, []);
-
-  // When connecting state changes, update node highlight flags
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (!connectingInfo) {
-          return { ...n, data: { ...n.data, highlight: false, highlightHandle: undefined } };
-        }
-        // If user started from a 'source' handle, highlight 'target' handles on other nodes and vice-versa
-        const targetHandle = connectingInfo.handleType === "source" ? "target" : "source";
-        const shouldHighlight = n.id !== connectingInfo.nodeId;
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            highlight: shouldHighlight,
-            highlightHandle: shouldHighlight ? targetHandle : undefined,
-          },
-        };
-      })
-    );
-  }, [connectingInfo, setNodes]);
-
   return (
     <div className="w-full h-[calc(100vh-100px)] bg-slate-50 relative rounded-xl border overflow-hidden">
       {!isConnected && (
@@ -624,18 +514,26 @@ const TopologyGraph = () => {
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onConnectStart={onConnectStart}
-        onConnectEnd={onConnectEnd}
+        onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
         className="bg-slate-50 h-full"
         style={{ height: "100%" }}
+        edgesFocusable={false}
+        nodesConnectable={false}
       >
         <Background />
         <Controls />
       </ReactFlow>
+
+      <NodeConfigPanel
+        isOpen={!!selectedNodeId}
+        onClose={() => setSelectedNodeId(null)}
+        nodeId={selectedNodeId}
+        nodeData={nodes.find((n) => n.id === selectedNodeId)?.data}
+        onCommand={(cmd, params) => selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)}
+      />
       {/* Command console moved to global layout */}
     </div>
   );
