@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MonitorCheck, Server, Wifi } from "lucide-react";
+import { HardDrive, MonitorCheck, Server, Wifi } from "lucide-react";
 import { memo } from "react";
 import { Handle, Position } from "reactflow";
 import type { AgentStats } from "@/types/network";
@@ -61,7 +61,7 @@ const AgentNode = ({ data }: { data: AgentNodeData }) => {
           <div className="mt-2 pt-2 border-t">
             <div className="text-[10px] font-semibold">Détails</div>
             {data.stats ? (
-              <div className="grid grid-cols-2 gap-2 mt-1">
+              <div className="grid grid-cols-3 gap-2 mt-1">
                 <div className="flex flex-col">
                   <span className="text-[10px] font-semibold text-foreground">CPU</span>
                   <span>{data.stats.system?.cpu_percent}%</span>
@@ -69,6 +69,12 @@ const AgentNode = ({ data }: { data: AgentNodeData }) => {
                 <div className="flex flex-col">
                   <span className="text-[10px] font-semibold text-foreground">RAM</span>
                   <span>{data.stats.system?.memory?.percent}%</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-semibold text-foreground flex items-center gap-1">
+                    <HardDrive className="w-3 h-3" /> Disk
+                  </span>
+                  <span>{data.stats.system?.disk?.percent}%</span>
                 </div>
               </div>
             ) : (
