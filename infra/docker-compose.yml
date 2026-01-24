@@ -44,6 +44,15 @@ services:
     networks:
       - geod-net
 
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - geod-net
+
 networks:
   geod-net:
     driver: bridge
