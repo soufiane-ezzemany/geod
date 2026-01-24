@@ -73,7 +73,9 @@ class NetworkAgent:
         @self.sio.on('execute_command')
         def on_execute_command(data):
             logger.info(f"Received command: {data}")
-            self._handle_command(data)
+            # Offload to a thread to avoid blocking the main SocketIO loop
+            t = threading.Thread(target=self._handle_command_threaded, args=(data,), daemon=True)
+            t.start()
     
     def _register_agent(self):
         """Register this agent with the backend"""
@@ -225,8 +227,8 @@ class NetworkAgent:
             
             time.sleep(self.heartbeat_interval)
     
-    def _handle_command(self, data: Dict[str, Any]):
-        """Handle commands received from backend"""
+    def _handle_command_threaded(self, data: Dict[str, Any]):
+        """Handle commands received from backend (threaded)"""
         command = data.get('command')
         params = data.get('params', {})
         request_id = data.get('request_id')
@@ -491,8 +493,8 @@ def main():
                       help='Backend server URL (default: http://localhost:5000)')
     parser.add_argument('--stats-interval', '-s', type=int, default=5,
                       help='Stats reporting interval in seconds (default: 5)')
-    parser.add_argument('--heartbeat-interval', '-hb', type=int, default=10,
-                      help='Heartbeat interval in seconds (default: 10)')
+    parser.add_argument('--heartbeat-interval', '-hb', type=int, default=30,
+                      help='Heartbeat interval in seconds (default: 30)')
     parser.add_argument('--no-reconnect', action='store_true',
                       help='Disable automatic reconnection')
     parser.add_argument('--verbose', '-v', action='store_true',
