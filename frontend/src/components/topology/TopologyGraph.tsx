@@ -545,6 +545,7 @@ const TopologyGraph = () => {
         nodeData={nodes.find((n) => n.id === selectedNodeId)?.data}
         onCommand={(cmd, params) => selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)}
       />
+      
       {/* Command console moved to global layout */}
     </div>
   );

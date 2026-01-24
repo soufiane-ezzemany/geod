@@ -59,14 +59,6 @@ export default function Dashboard() {
             }
         });
 
-        socket.on('link_stats_update', () => {
-             // Re-fetch full topology for accurate calculation or maintain local state
-             // For simplicity, we re-fetch the latest state or wait for next topology push
-             fetch(API_ENDPOINTS.topology)
-                .then(res => res.json())
-                .then((data: TopologyData) => calculateStats(data.nodes || [], data.links || []));
-        });
-
         return () => {
             socket.disconnect();
         };
@@ -75,35 +67,35 @@ export default function Dashboard() {
     return (
         <div className="space-y-6 p-6 h-full flex flex-col">
             <div>
-                <h1 className="text-3xl font-bold tracking-tight">Tableau de bord</h1>
+                <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
                 <p className="text-muted-foreground mt-1">
-                    Vue d'ensemble de votre infrastructure réseau
+                    Overview of your network infrastructure
                 </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatsCard
-                    title="Liens Actifs"
+                    title="Active Links"
                     value={stats.linkCount}
-                    description="Connexions monitorées"
+                    description="Monitored connections"
                     icon={Layers}
                 />
                 <StatsCard
-                    title="Nœuds réseau"
+                    title="Network Nodes"
                     value={stats.nodeCount}
-                    description="Agents connectés"
+                    description="Connected agents"
                     icon={Network}
                 />
                 <StatsCard
-                    title="Latence moyenne"
+                    title="Avg Latency"
                     value={`${stats.avgLatency}ms`}
-                    description="Sur l'ensemble des liens"
+                    description="Across all links"
                     icon={Activity}
                 />
                 <StatsCard
-                    title="Alertes latence"
+                    title="Latency Alerts"
                     value={stats.alertCount}
-                    description="Liens > 100ms"
+                    description="Links > 100ms"
                     icon={AlertCircle}
                 />
             </div>
