@@ -18,11 +18,18 @@ export interface NetworkStats {
   packets_recv: number;
   errors_in: number;
   errors_out: number;
-  drop_in: number;
-  drop_out: number;
-  active_connections: number;
-  interfaces: Record<string, NetworkInterfaceStats>;
-  timestamp: string;
+    drop_in: number;
+    drop_out: number;
+    active_connections: number;
+    latency_avg?: number;
+    packet_loss_avg?: number;
+    // Calculated rates from history API
+    throughput_sent_mbps?: number;
+    throughput_recv_mbps?: number;
+    pps_sent?: number;
+    pps_recv?: number;
+    interfaces: Record<string, NetworkInterfaceStats>;
+    timestamp?: string;
 }
 
 export interface SystemStats {
@@ -39,7 +46,7 @@ export interface SystemStats {
     free: number;
     percent: number;
   };
-  timestamp: string;
+  timestamp?: string;
 }
 
 export interface AgentStats {

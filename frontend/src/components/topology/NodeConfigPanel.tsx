@@ -9,18 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-    Activity, 
-    ArrowRightLeft, 
-    Gauge, 
-    Laptop2, 
-    Network, 
-    Terminal, 
+import {
+    Activity,
+    ArrowRightLeft,
+    Gauge,
+    Laptop2,
+    Network,
+    Terminal,
     Trash2,
     Wifi
 } from "lucide-react";
 import { useState } from "react";
-import type { CommandParams } from "@/types/network";
+import type { AgentStats, CommandParams } from "@/types/network";
 
 interface NodeConfigPanelProps {
   isOpen: boolean;
@@ -30,11 +30,10 @@ interface NodeConfigPanelProps {
     ip?: string;
     os?: string;
     status?: string;
-    stats?: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    stats?: AgentStats;
   };
   onCommand: (command: string, params?: CommandParams) => void;
 }
-
 export function NodeConfigPanel({
   isOpen,
   onClose,

@@ -9,10 +9,10 @@ export interface Metrics extends AgentStats {
 }
 
 interface MetricsContextType {
-  metrics: Metrics[];
+  metrics: Record<string, Metrics[]>;
 }
 
-const MetricsContext = createContext<MetricsContextType>({ metrics: [] });
+const MetricsContext = createContext<MetricsContextType>({ metrics: {} });
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useMetrics() {
@@ -20,7 +20,7 @@ export function useMetrics() {
 }
 
 export function MetricsProvider({ children }: { children: React.ReactNode }) {
-  const [metrics, setMetrics] = useState<Metrics[]>([]);
+  const [metrics, setMetrics] = useState<Record<string, Metrics[]>>({});
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -28,15 +28,21 @@ export function MetricsProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = socket;
 
     socket.on("network_stats_update", (data) => {
-      setMetrics((prev) => [
-        {
-          agent_id: data.hostname, // Mapping hostname to agent_id
-          network: data.stats.network,
-          system: data.stats.system,
-          timestamp: data.timestamp,
-        },
-        ...prev.slice(0, 50), // keep last 50
-      ]);
+      setMetrics((prev) => {
+          const agentId = data.hostname;
+          const newMetric = {
+              agent_id: agentId,
+              network: data.stats.network,
+              system: data.stats.system,
+              timestamp: data.timestamp,
+          };
+
+          const currentAgentMetrics = prev[agentId] || [];
+          return {
+              ...prev,
+              [agentId]: [...currentAgentMetrics, newMetric].slice(-100) // Keep last 100 per agent
+          };
+      });
     });
 
     return () => {
