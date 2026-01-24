@@ -8,4 +8,10 @@ To run the application, you'll need to set up the backend, frontend, and at leas
 
 ## Development
 
-For full functionality, make sure the backend, frontend, and at least one agent are all running simultaneously.
+For full functionality, make sure the backend, frontend, and at least one agent are all running simultaneously. For a full setup using Docker compose:
+
+```bash
+cd infra/
+docker-compose up --build
+```
+This will build and start all components of the application. Access the frontend at `http://localhost:5173/`, and the backend API will be available at `http://localhost:5000/`.
