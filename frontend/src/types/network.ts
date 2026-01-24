@@ -61,6 +61,7 @@ export interface TopologyLink {
   source: string;
   target: string;
   latency?: number;
+  packet_loss?: number;
   last_updated?: string;
   monitoring?: boolean;
   [key: string]: unknown;
@@ -90,6 +91,7 @@ export interface LinkStatsUpdate {
   source: string;
   target: string;
   latency: number;
+  packet_loss?: number;
 }
 
 // --- Command Parameters ---

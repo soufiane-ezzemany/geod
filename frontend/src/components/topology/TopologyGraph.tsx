@@ -21,6 +21,7 @@ import type {
   CommandParams,
   BandwidthParams,
   IperfClientParams,
+  TopologyLink,
 } from "@/types/network";
 import { BACKEND_URL, API_ENDPOINTS } from "@/config";
 
@@ -32,7 +33,10 @@ const edgeTypes = {
   custom: CustomEdge,
 };
 
-const determineLinkColor = (latency: number) => {
+const determineLinkColor = (latency: number, packetLoss: number = 0) => {
+  if (packetLoss >= 50) return "#ef4444"; // High loss = Red
+  if (packetLoss > 0) return "#f97316"; // Any loss = Orange
+  
   if (latency < 20) return "#22c55e"; // Green
   if (latency < 100) return "#eab308"; // Yellow
   return "#ef4444"; // Red
@@ -126,7 +130,6 @@ const TopologyGraph = () => {
           target_hostname: nodeId,
           command: "bandwidth_limit",
           params: {
-            interface: "eth0",
             limit: bwParams?.limit,
           },
         });
@@ -141,7 +144,6 @@ const TopologyGraph = () => {
             target_hostname: nodeId,
             command: "bandwidth_limit",
             params: {
-                interface: "eth0",
                 latency: delayVal
             }
         });
@@ -153,7 +155,6 @@ const TopologyGraph = () => {
             target_hostname: nodeId,
             command: "bandwidth_limit",
             params: {
-                interface: "eth0",
                 loss: lossParams?.loss
             }
         });
@@ -164,7 +165,6 @@ const TopologyGraph = () => {
             target_hostname: nodeId,
             command: "bandwidth_limit",
             params: {
-                interface: "eth0",
                 // Sending explicit nulls or just empty to trigger clear
                 limit: null,
                 latency: null,
@@ -178,7 +178,7 @@ const TopologyGraph = () => {
   );
 
   const handleEdgeAction = useCallback(
-    (action: string, edgeId: string, source: string, target: string, params?: CommandParams) => {
+    (action: string, _edgeId: string, source: string, target: string, params?: CommandParams) => {
       console.log(`Edge Action: ${action} on ${source}->${target}`, params);
       
       if (action === "iperf") {
@@ -330,21 +330,27 @@ const TopologyGraph = () => {
             // Clone data to avoid mutation
             const newData = { ...edge.data };
             const updatedLatency = data.latency;
+            const updatedLoss = data.packet_loss || 0;
 
             // Update the specific direction stats
             if (data.source === sortedIds[0]) {
                // Forward update
-               newData.forward = { ...newData.forward, latency: updatedLatency };
+               newData.forward = { ...newData.forward, latency: updatedLatency, packet_loss: updatedLoss };
             } else {
                // Backward update
-               newData.backward = { ...newData.backward, latency: updatedLatency };
+               newData.backward = { ...newData.backward, latency: updatedLatency, packet_loss: updatedLoss };
             }
 
-            // Recalculate color based on max latency
+            // Recalculate color based on max latency and max loss
             const lat1 = newData.forward?.latency || 0;
             const lat2 = newData.backward?.latency || 0;
             const maxLat = Math.max(lat1, lat2);
-            const newColor = determineLinkColor(maxLat);
+
+            const loss1 = newData.forward?.packet_loss || 0;
+            const loss2 = newData.backward?.packet_loss || 0;
+            const maxLoss = Math.max(loss1, loss2);
+
+            const newColor = determineLinkColor(maxLat, maxLoss);
 
             return {
               ...edge,
@@ -435,7 +441,12 @@ const TopologyGraph = () => {
                  const val1 = latForward || 0;
                  const val2 = latBackward || 0;
                  const maxLat = Math.max(val1, val2);
-                 strokeColor = determineLinkColor(maxLat);
+                 
+                 const loss1 = pair.forward?.packet_loss || 0;
+                 const loss2 = pair.backward?.packet_loss || 0;
+                 const maxLoss = Math.max(loss1, loss2);
+
+                 strokeColor = determineLinkColor(maxLat, maxLoss);
              }
         }
 

@@ -9,6 +9,7 @@ import time
 import json
 import os
 import re
+import functools
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'geod-secret-key'
@@ -197,9 +198,10 @@ def handle_command_result(data):
                     break
         
         if target_hostname:
-            # Parse ping output to get latency
+            # Parse ping output to get latency and packet loss
             output = result_data.get('output', '')
             latency = -1
+            packet_loss = 0
             
             # Linux/Mac/Unix: time=12.3 ms
             # Windows: Average = 12ms
@@ -222,15 +224,37 @@ def handle_command_result(data):
                     except ValueError:
                         pass
             
-            logger.info(f"Link Update: {source_hostname} -> {target_hostname} : {latency}ms")
+            # Parse Packet Loss
+            # Linux/Mac: 0% packet loss
+            # Windows: Lost = 0 (0% loss)
+            loss_match = re.search(r'(\d+)% packet loss', output)
+            if loss_match:
+                 try:
+                     packet_loss = int(loss_match.group(1))
+                 except ValueError:
+                     pass
+            else:
+                 # Windows style: (0% loss)
+                 win_loss_match = re.search(r'\((\d+)% loss\)', output)
+                 if win_loss_match:
+                     try:
+                         packet_loss = int(win_loss_match.group(1))
+                     except ValueError:
+                         pass
+
+            logger.info(f"Link Update: {source_hostname} -> {target_hostname} : {latency}ms, {packet_loss}% loss")
             
-            if latency > 0:
-                topology_manager.update_link_stats(source_hostname, target_hostname, {'latency': latency})
+            # We update if valid latency OR significant packet loss (100% loss might show latency=-1)
+            if latency > 0 or packet_loss > 0:
+                stats_update = {'latency': latency, 'packet_loss': packet_loss}
+                topology_manager.update_link_stats(source_hostname, target_hostname, stats_update)
+                
                 # Broadcast topology update
                 socketio.server.emit('link_stats_update', {
                     'source': source_hostname,
                     'target': target_hostname,
-                    'latency': latency
+                    'latency': latency,
+                    'packet_loss': packet_loss
                 }, namespace='/')
 
     # Only broadcast to console if it's NOT a background monitoring request
@@ -291,7 +315,7 @@ def monitor_links_loop():
                         # Instruct source to ping target
                         socketio.emit('execute_command', {
                             'command': 'ping',
-                            'params': {'target': target_ip, 'count': 1, 'target_hostname': target},
+                            'params': {'target': target_ip, 'count': 3, 'target_hostname': target},
                             'request_id': f"monitor_{source}_{target}_{int(time.time())}"
                         }, room=source_sid)
                         

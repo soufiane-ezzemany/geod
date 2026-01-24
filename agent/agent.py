@@ -100,6 +100,23 @@ class NetworkAgent:
         except Exception as e:
             logger.error(f"Error getting IP address: {e}")
             return "unknown"
+            
+    def _get_default_interface(self) -> str:
+        """Get the default network interface name associated with the primary IP"""
+        primary_ip = self._get_ip_address()
+        if primary_ip == "unknown":
+            return "eth0" # Fallback
+            
+        try:
+            addrs = psutil.net_if_addrs()
+            for interface, entries in addrs.items():
+                for entry in entries:
+                    if entry.address == primary_ip:
+                        return interface
+        except Exception as e:
+            logger.error(f"Error finding default interface: {e}")
+            
+        return "eth0" # Fallback
     
     def _get_network_stats(self) -> Dict[str, Any]:
         """Collect network statistics"""
@@ -246,7 +263,7 @@ class NetworkAgent:
                 result['data'] = self._list_connections()
             
             elif command == 'bandwidth_limit':
-                interface = params.get('interface', 'eth0')
+                interface = params.get('interface')
                 limit = params.get('limit')
                 latency = params.get('latency')
                 loss = params.get('loss')
@@ -311,11 +328,14 @@ class NetworkAgent:
         except Exception as e:
             return {'error': str(e)}
     
-    def _set_traffic_control(self, interface: str, limit: Optional[str] = None, latency: Optional[str] = None, loss: Optional[str] = None) -> Dict[str, Any]:
+    def _set_traffic_control(self, interface: Optional[str] = None, limit: Optional[str] = None, latency: Optional[str] = None, loss: Optional[str] = None) -> Dict[str, Any]:
         """
         Set traffic control rules (bandwidth, latency, loss) on interface.
         Uses 'tc' with 'netem'.
         """
+        if not interface:
+            interface = self._get_default_interface()
+
         logger.warning(f"Setting traffic control on {interface}: limit={limit}, latency={latency}, loss={loss}")
         
         if platform.system() != 'Linux':
