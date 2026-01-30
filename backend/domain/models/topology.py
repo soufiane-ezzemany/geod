@@ -5,14 +5,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Node:
-    """Network node entity.
-
-    Attributes:
-        id: Unique node identifier (typically hostname)
-        ip: IP address of the node
-        type: Node type (e.g., 'agent', 'router')
-        status: Node status (e.g., 'online', 'offline')
-    """
+    """Network node entity."""
 
     id: str
     ip: str
@@ -22,16 +15,7 @@ class Node:
 
 @dataclass
 class Link:
-    """Network link entity.
-
-    Attributes:
-        source: Source node identifier
-        target: Target node identifier
-        latency: Link latency in milliseconds
-        packet_loss: Packet loss percentage
-        monitoring: Whether this link is being monitored
-        type: Link type (e.g., 'auto', 'manual')
-    """
+    """Network link entity."""
 
     source: str
     target: str

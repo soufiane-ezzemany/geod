@@ -5,15 +5,6 @@ import sys
 
 
 def setup_logging(level=logging.INFO, logger_name="Backend"):
-    """Configure application logging.
-
-    Args:
-        level: Logging level (default: INFO)
-        logger_name: Name of the logger (default: "Backend")
-
-    Returns:
-        Configured logger instance
-    """
     logging.basicConfig(
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

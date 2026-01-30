@@ -1,5 +1,3 @@
-"""Domain models package."""
-
 from .agent import Agent
 from .topology import Node, Link
 

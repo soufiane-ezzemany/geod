@@ -6,16 +6,7 @@ from datetime import datetime
 
 @dataclass
 class Agent:
-    """Monitoring agent entity.
-
-    Attributes:
-        sid: Socket ID (unique session identifier)
-        hostname: Agent hostname (stable identifier)
-        ip_address: Agent IP address
-        os: Operating system information
-        connected_at: Timestamp when agent connected
-        last_heartbeat: Timestamp of last heartbeat received
-    """
+    """Monitoring agent entity."""
 
     sid: str
     hostname: str
@@ -25,11 +16,9 @@ class Agent:
     last_heartbeat: datetime
 
     def update_heartbeat(self) -> None:
-        """Update the last heartbeat timestamp to current time."""
         self.last_heartbeat = datetime.now()
 
     def to_dict(self) -> dict:
-        """Convert agent to dictionary representation."""
         return {
             'sid': self.sid,
             'hostname': self.hostname,
