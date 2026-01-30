@@ -20,6 +20,7 @@ from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 from config import settings
 from config.logging_config import setup_logging
 from domain.models.agent import Agent
+from infrastructure.parsers.ping_parser import parse_ping_output
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -442,47 +443,7 @@ def handle_command_result(data):
         if target_hostname:
             # Parse ping output to get latency and packet loss
             output = result_data.get('output', '')
-            latency = -1
-            packet_loss = 0
-            
-            # Linux/Mac/Unix: time=12.3 ms
-            # Windows: Average = 12ms
-            
-            # Try Linux/Unix pattern first
-            # Matches: time=12.3 or time=12.3ms
-            linux_match = re.search(r'time=([\d.]+)', output)
-            if linux_match:
-                try:
-                    latency = float(linux_match.group(1))
-                except ValueError:
-                    pass
-            else:
-                # Try Windows pattern
-                # Matches: Average = 12ms or Average=12ms
-                win_match = re.search(r'Average\s*=\s*(\d+)', output)
-                if win_match:
-                    try:
-                        latency = float(win_match.group(1))
-                    except ValueError:
-                        pass
-            
-            # Parse Packet Loss
-            # Linux/Mac: 0% packet loss
-            # Windows: Lost = 0 (0% loss)
-            loss_match = re.search(r'(\d+)% packet loss', output)
-            if loss_match:
-                 try:
-                     packet_loss = int(loss_match.group(1))
-                 except ValueError:
-                     pass
-            else:
-                 # Windows style: (0% loss)
-                 win_loss_match = re.search(r'\((\d+)% loss\)', output)
-                 if win_loss_match:
-                     try:
-                         packet_loss = int(win_loss_match.group(1))
-                     except ValueError:
-                         pass
+            latency, packet_loss = parse_ping_output(output)
 
             logger.info(f"Link Update: {source_hostname} -> {target_hostname} : {latency}ms, {packet_loss}% loss")
             
