@@ -1,7 +1,4 @@
-"""Logging configuration for the application.
-
-Centralizes logging setup to ensure consistent logging across all modules.
-"""
+"""Logging configuration for the application."""
 
 import logging
 import sys
@@ -27,15 +24,3 @@ def setup_logging(level=logging.INFO, logger_name="Backend"):
     logger.setLevel(level)
 
     return logger
-
-
-def get_logger(name):
-    """Get a logger instance with the given name.
-
-    Args:
-        name: Logger name (typically __name__ of the module)
-
-    Returns:
-        Logger instance
-    """
-    return logging.getLogger(name)

@@ -305,10 +305,10 @@ def handle_disconnect():
     sid = request.sid
     if sid in sid_to_agent:
         agent = sid_to_agent.pop(sid)
-        hostname = agent.get('hostname')
+        hostname = agent.hostname
         if hostname and hostname in hostname_to_sid:
             del hostname_to_sid[hostname]
-        
+
             # Mark as offline in topology
             topology_manager.add_node(hostname, data={'status': 'offline'})
 
@@ -334,7 +334,7 @@ def handle_agent_registration(data):
 
     sid_to_agent[sid] = agent
     hostname_to_sid[hostname] = sid
-    
+
     # Add to topology graph as a node
     topology_manager.add_node(hostname, data={'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'})
     
@@ -345,8 +345,6 @@ def handle_agent_registration(data):
         
         for other_node in existing_nodes:
             # Create bidirectional links if they don't exist
-            # Note: add_link (via networkx add_edge) updates attributes if edge exists, 
-            # so we can safely call it. We set monitoring=True by default.
             topology_manager.add_link(hostname, other_node, {'monitoring': True, 'type': 'auto'})
             topology_manager.add_link(other_node, hostname, {'monitoring': True, 'type': 'auto'})
             logger.info(f"Auto-connected {hostname} <-> {other_node}")
