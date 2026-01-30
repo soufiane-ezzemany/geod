@@ -109,13 +109,41 @@ export interface IperfServerParams { port?: number; }
 export interface IperfClientParams { target: string; duration?: number; port?: number; }
 export interface ToggleMonitoringParams { enabled: boolean; }
 
-export type CommandParams = 
-  | PingParams 
-  | TracerouteParams 
-  | BandwidthParams 
-  | IperfServerParams 
-  | IperfClientParams 
+export interface ChaosRuleTarget {
+  dst_ip?: string;
+  dst_port?: number;
+  dst_subnet?: string;
+  protocol?: 'tcp' | 'udp';
+}
+
+export interface ChaosRuleEffects {
+  latency?: string;
+  loss?: string;
+  limit?: string;
+}
+
+export interface ChaosRule {
+  id?: string;
+  name?: string;
+  target: ChaosRuleTarget;
+  effects: ChaosRuleEffects;
+  enabled?: boolean;
+}
+
+export interface AdvancedTrafficControlParams {
+  interface?: string;
+  rules: ChaosRule[];
+  mode?: 'replace' | 'append';
+}
+
+export type CommandParams =
+  | PingParams
+  | TracerouteParams
+  | BandwidthParams
+  | IperfServerParams
+  | IperfClientParams
   | ToggleMonitoringParams
+  | AdvancedTrafficControlParams
   | Record<string, unknown>;
 
 // --- Command Results ---
