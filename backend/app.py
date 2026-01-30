@@ -19,6 +19,7 @@ from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from config import settings
 from config.logging_config import setup_logging
+from domain.models.agent import Agent
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -147,7 +148,7 @@ def update_topology():
 
 @app.route('/api/agents', methods=['GET'])
 def get_agents():
-    return jsonify(list(sid_to_agent.values()))
+    return jsonify([agent.to_dict() for agent in sid_to_agent.values()])
 
 @app.route('/metrics')
 def metrics():
@@ -321,17 +322,17 @@ def handle_disconnect():
 def handle_agent_registration(data):
     sid = request.sid
     hostname = data.get('hostname', 'unknown')
-    
-    agent_info = {
-        'sid': sid,
-        'hostname': hostname,
-        'ip_address': data.get('ip_address'),
-        'os': data.get('os'),
-        'connected_at': datetime.now().isoformat(),
-        'last_heartbeat': datetime.now().isoformat()
-    }
-    
-    sid_to_agent[sid] = agent_info
+
+    agent = Agent(
+        sid=sid,
+        hostname=hostname,
+        ip_address=data.get('ip_address'),
+        os=data.get('os'),
+        connected_at=datetime.now(),
+        last_heartbeat=datetime.now()
+    )
+
+    sid_to_agent[sid] = agent
     hostname_to_sid[hostname] = sid
     
     # Add to topology graph as a node
@@ -354,7 +355,7 @@ def handle_agent_registration(data):
 
     logger.info(f"Agent registered: {hostname} ({sid})")
     emit('registration_confirmed', {'agent_id': sid, 'status': 'registered'})
-    socketio.server.emit('agent_connected', agent_info, namespace='/')
+    socketio.server.emit('agent_connected', agent.to_dict(), namespace='/')
     
     # Broadcast updated topology immediately so new node appears
     socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
@@ -363,16 +364,16 @@ def handle_agent_registration(data):
 def handle_heartbeat(data):
     sid = request.sid
     if sid in sid_to_agent:
-        sid_to_agent[sid]['last_heartbeat'] = datetime.now().isoformat()
+        sid_to_agent[sid].update_heartbeat()
 
 @socketio.on('network_stats')
 def handle_network_stats(data):
     sid = request.sid
     if sid in sid_to_agent:
         # Treat stats as a heartbeat (Alive!)
-        sid_to_agent[sid]['last_heartbeat'] = datetime.now().isoformat()
+        sid_to_agent[sid].update_heartbeat()
 
-        hostname = sid_to_agent[sid]['hostname']
+        hostname = sid_to_agent[sid].hostname
         
         # Update Prometheus Metrics
         try:
@@ -424,7 +425,7 @@ def handle_command_result(data):
     if sid not in sid_to_agent:
         return
 
-    source_hostname = sid_to_agent[sid]['hostname']
+    source_hostname = sid_to_agent[sid].hostname
 
     if command == 'ping' and result_data:
         target_ip = result_data.get('target')
@@ -549,7 +550,7 @@ def monitor_links_loop():
     Periodically checks defined links and triggers pings.
     """
     while True:
-        socketio.sleep(15) # Check every 15 seconds (Green Thread friendly)
+        socketio.sleep(settings.MONITOR_INTERVAL_SECONDS)
         
         try:
             # We need a snapshot of the graph to iterate safely
@@ -564,18 +565,18 @@ def monitor_links_loop():
                 if source in hostname_to_sid and target in hostname_to_sid:
                     source_sid = hostname_to_sid[source]
                     target_agent = sid_to_agent[hostname_to_sid[target]]
-                    target_ip = target_agent.get('ip_address')
-                    
+                    target_ip = target_agent.ip_address
+
                     if target_ip:
                         # Instruct source to ping target
                         socketio.emit('execute_command', {
                             'command': 'ping',
-                            'params': {'target': target_ip, 'count': 3, 'target_hostname': target},
+                            'params': {'target': target_ip, 'count': settings.PING_COUNT, 'target_hostname': target},
                             'request_id': f"monitor_{source}_{target}_{int(time.time())}"
                         }, room=source_sid)
-                        
+
                         # Stagger pings to prevent "thundering herd"
-                        socketio.sleep(0.1) 
+                        socketio.sleep(settings.PING_STAGGER_DELAY_SECONDS) 
                         
         except Exception as e:
             logger.error(f"Error in monitor loop: {e}")
