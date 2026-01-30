@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-from datetime import datetime
 import time
 import eventlet
 
@@ -12,13 +11,13 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from config import settings
 from config.logging_config import setup_logging
-from domain.models.agent import Agent
 from infrastructure.external.prometheus_client import PrometheusClient
 from application.services.metrics_service import MetricsService
 from application.services.agent_registry import AgentRegistry
 from application.services.topology_service import TopologyService
 from application.services.history_service import HistoryService
 from application.services.command_handler import CommandHandler
+from application.services.agent_event_handler import AgentEventHandler
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -36,6 +35,7 @@ agent_registry = AgentRegistry()
 topology_service = TopologyService()
 history_service = HistoryService(prom_client)
 command_handler = CommandHandler(agent_registry, topology_service, metrics_service)
+agent_event_handler = AgentEventHandler(agent_registry, topology_service, metrics_service)
 
 @app.route('/')
 def hello_world():
@@ -99,91 +99,36 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
-    agent = agent_registry.unregister(sid)
+    agent = agent_event_handler.handle_disconnection(sid)
 
     if agent:
-        hostname = agent.hostname
-        # Mark as offline in topology
-        topology_service.add_node(hostname, data={'status': 'offline'})
-
-        logger.info(f"Agent disconnected: {hostname} ({sid})")
-        socketio.server.emit('agent_disconnected', {'agent_id': sid, 'hostname': hostname}, namespace='/')
-
-        # Broadcast updated topology so frontend sees the offline status
-        socketio.server.emit('topology_update', topology_service.get_topology_json(), namespace='/')
+        socketio.server.emit('agent_disconnected', {
+            'agent_id': sid,
+            'hostname': agent.hostname
+        }, namespace='/')
+        socketio.server.emit('topology_update', agent_event_handler.get_topology_snapshot(), namespace='/')
 
 @socketio.on('register_agent')
 def handle_agent_registration(data):
     sid = request.sid
-    hostname = data.get('hostname', 'unknown')
+    agent = agent_event_handler.handle_registration(sid, data)
 
-    agent = Agent(
-        sid=sid,
-        hostname=hostname,
-        ip_address=data.get('ip_address'),
-        os=data.get('os'),
-        connected_at=datetime.now(),
-        last_heartbeat=datetime.now()
-    )
-
-    agent_registry.register(agent)
-
-    # Auto-connect to all existing agents (Full Mesh)
-    try:
-        topology_service.auto_connect_agent(
-            hostname,
-            {'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'}
-        )
-
-        # Log connections
-        existing_nodes = [n for n in topology_service.get_all_agent_nodes() if n != hostname]
-        for other_node in existing_nodes:
-            logger.info(f"Auto-connected {hostname} <-> {other_node}")
-    except Exception as e:
-        logger.error(f"Error in auto-connection logic: {e}")
-
-    logger.info(f"Agent registered: {hostname} ({sid})")
     emit('registration_confirmed', {'agent_id': sid, 'status': 'registered'})
     socketio.server.emit('agent_connected', agent.to_dict(), namespace='/')
-
-    # Broadcast updated topology immediately so new node appears
-    socketio.server.emit('topology_update', topology_service.get_topology_json(), namespace='/')
+    socketio.server.emit('topology_update', agent_event_handler.get_topology_snapshot(), namespace='/')
 
 @socketio.on('heartbeat')
 def handle_heartbeat(data):
     sid = request.sid
-    agent = agent_registry.get_by_sid(sid)
-    if agent:
-        agent.update_heartbeat()
+    agent_event_handler.handle_heartbeat(sid)
 
 @socketio.on('network_stats')
 def handle_network_stats(data):
     sid = request.sid
-    agent = agent_registry.get_by_sid(sid)
-    if agent:
-        # Treat stats as a heartbeat (Alive!)
-        agent.update_heartbeat()
+    enriched_stats = agent_event_handler.handle_network_stats(sid, data)
 
-        hostname = agent.hostname
-
-        # Update Prometheus Metrics
-        try:
-            metrics_service.update_system_metrics(hostname, data['system'])
-            metrics_service.update_network_metrics(hostname, data['network'])
-        except Exception as e:
-            logger.error(f"Error updating metrics for {hostname}: {e}")
-
-        # Inject Topology Stats (Latency/Loss)
-        topo_stats = topology_service.get_node_average_stats(hostname)
-        data['network']['latency_avg'] = topo_stats['latency']
-        data['network']['packet_loss_avg'] = topo_stats['packet_loss']
-
-        # Broadcast stats to frontend
-        socketio.server.emit('network_stats_update', {
-            'hostname': hostname,
-            'stats': data,
-            'timestamp': datetime.now().isoformat()
-        }, namespace='/')
+    if enriched_stats:
+        socketio.server.emit('network_stats_update', enriched_stats, namespace='/')
 
 @socketio.on('command_result')
 def handle_command_result(data):
