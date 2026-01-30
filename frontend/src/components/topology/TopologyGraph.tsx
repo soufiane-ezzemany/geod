@@ -1,4 +1,15 @@
 import { Button } from "@/components/ui/button";
+import { API_ENDPOINTS } from "@/config";
+import { useSocket } from "@/context/socket-context";
+import type {
+  BandwidthParams,
+  CommandParams,
+  IperfClientParams,
+  LinkStatsUpdate,
+  NetworkStatsUpdate,
+  TopologyData,
+  TopologyLink,
+} from "@/types/network";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Edge, Node } from "reactflow";
@@ -9,20 +20,10 @@ import ReactFlow, {
   useNodesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import CustomEdge from "./CustomEdge";
-import AgentNode from "./nodes/AgentNode";
 import { NodeConfigPanel } from "./NodeConfigPanel";
-import type {
-  TopologyData,
-  NetworkStatsUpdate,
-  LinkStatsUpdate,
-  CommandParams,
-  IperfClientParams,
-  TopologyLink,
-} from "@/types/network";
-import { BACKEND_URL, API_ENDPOINTS } from "@/config";
+import AgentNode from "./nodes/AgentNode";
 
 const nodeTypes = {
   agent: AgentNode,
@@ -35,7 +36,7 @@ const edgeTypes = {
 const determineLinkColor = (latency: number, packetLoss: number = 0) => {
   if (packetLoss >= 50) return "#ef4444"; // High loss = Red
   if (packetLoss > 0) return "#f97316"; // Any loss = Orange
-  
+
   if (latency < 20) return "#22c55e"; // Green
   if (latency < 100) return "#eab308"; // Yellow
   return "#ef4444"; // Red
@@ -44,15 +45,14 @@ const determineLinkColor = (latency: number, packetLoss: number = 0) => {
 const TopologyGraph = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const { socket, isConnected } = useSocket();
   const [, setPendingEdges] = useState<
     Record<string, { action: "remove" | "add"; ts: number }>
   >({});
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-      setSelectedNodeId(node.id);
+    setSelectedNodeId(node.id);
   }, []);
 
   // Define actions using useCallback to keep reference stable
@@ -68,7 +68,12 @@ const TopologyGraph = () => {
       // The following commands require an active WebSocket connection
       if (!socket || !socket.connected) {
         toast.error("WebSocket not connected — unable to send command.");
-        console.warn("Attempted command without socket connected:", action, nodeId, params);
+        console.warn(
+          "Attempted command without socket connected:",
+          action,
+          nodeId,
+          params,
+        );
         return;
       }
 
@@ -121,27 +126,73 @@ const TopologyGraph = () => {
           params: {},
         });
         toast.success(`Serveur Iperf arrêté sur ${nodeId}`);
-      
-      // --- Chaos Control ---
-      } else if (action === "chaos_control") {
+
+        // --- Traffic Control Actions (Moved from Edge) ---
+      } else if (action === "bandwidth") {
+        const bwParams = params as BandwidthParams;
         socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "chaos_control",
-            params: params,
+          target_hostname: nodeId,
+          command: "bandwidth_limit",
+          params: {
+            limit: bwParams?.limit,
+          },
         });
-        toast.success(`Chaos rules applied to ${nodeId}`);
+        toast.success(`Bandwidth limit: ${bwParams?.limit} (Node: ${nodeId})`);
+      } else if (action === "latency") {
+        const latParams = params as BandwidthParams;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const delayVal = (params as any)?.delay || latParams?.latency;
+
+        socket.emit("trigger_command", {
+          target_hostname: nodeId,
+          command: "bandwidth_limit",
+          params: {
+            latency: delayVal,
+          },
+        });
+        toast.success(`Latency: ${delayVal} (Node: ${nodeId})`);
+      } else if (action === "loss") {
+        const lossParams = params as BandwidthParams;
+        socket.emit("trigger_command", {
+          target_hostname: nodeId,
+          command: "bandwidth_limit",
+          params: {
+            loss: lossParams?.loss,
+          },
+        });
+        toast.success(`Packet Loss: ${lossParams?.loss} (Node: ${nodeId})`);
+      } else if (action === "reset_traffic") {
+        socket.emit("trigger_command", {
+          target_hostname: nodeId,
+          command: "bandwidth_limit",
+          params: {
+            // Sending explicit nulls or just empty to trigger clear
+            limit: null,
+            latency: null,
+            loss: null,
+          },
+        });
+        toast.success(`Traffic control reset (Node: ${nodeId})`);
       }
     },
-    [socket]
+    [socket],
   );
 
   const handleEdgeAction = useCallback(
-    (action: string, _edgeId: string, source: string, target: string, params?: CommandParams) => {
+    (
+      action: string,
+      _edgeId: string,
+      source: string,
+      target: string,
+      params?: CommandParams,
+    ) => {
       console.log(`Edge Action: ${action} on ${source}->${target}`, params);
-      
+
       if (action === "iperf") {
         if (!socket) {
-          toast.error("WebSocket not connected — impossible d'envoyer la commande.");
+          toast.error(
+            "WebSocket not connected — impossible d'envoyer la commande.",
+          );
           return;
         }
         const iperfParams = params as IperfClientParams;
@@ -168,37 +219,33 @@ const TopologyGraph = () => {
         }, 1000);
       }
     },
-    [socket]
+    [socket],
   );
 
-  // Initialize Socket
+  // Subscribe to socket events
   useEffect(() => {
-    const newSocket = io(BACKEND_URL);
-    setSocket(newSocket);
+    // Request initial topology
+    fetch(API_ENDPOINTS.topology)
+      .then((res) => res.json())
+      .then((data: TopologyData) => processRef.current?.(data));
 
-    newSocket.on("connect", () => {
-      setIsConnected(true);
-      console.log("Connected to backend");
-      // Request initial topology
-      fetch(API_ENDPOINTS.topology)
-        .then((res) => res.json())
-        .then((data: TopologyData) => processRef.current?.(data));
-    });
+    if (!socket) return;
 
-    newSocket.on("disconnect", () => setIsConnected(false));
-
-    newSocket.on("topology_update", (data: TopologyData) => {
+    const handleTopologyUpdate = (data: TopologyData) => {
       // Clear pending markers; server topology is authoritative
       setPendingEdges({});
       processRef.current?.(data);
-    });
+    };
 
-    // Acks for link operations
-    newSocket.on("link_removed_ack", (ack) => {
+    const handleLinkRemovedAck = (ack: {
+      source?: string;
+      target?: string;
+      status?: string;
+      message?: string;
+    }) => {
       const { source, target, status, message } = ack || {};
       const edgeId = `${source}-${target}`;
       if (status === "removed") {
-        // Ensure it's removed locally and clear pending
         setEdges((eds) => eds.filter((e) => e.id !== edgeId));
         setPendingEdges((p) => {
           const copy = { ...p };
@@ -207,38 +254,46 @@ const TopologyGraph = () => {
         });
         toast.success(`Lien supprimé: ${source} → ${target}`);
       } else {
-        // Failure: clear pending flag and notify
         setEdges((eds) =>
-          eds.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e))
+          eds.map((e) =>
+            e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e,
+          ),
         );
         setPendingEdges((p) => {
           const copy = { ...p };
           delete copy[edgeId];
           return copy;
         });
-        toast.error(`Échec suppression lien ${source} → ${target}: ${message || "Erreur"}`);
+        toast.error(
+          `Échec suppression lien ${source} → ${target}: ${message || "Erreur"}`,
+        );
       }
-    });
+    };
 
-    newSocket.on("link_added_ack", (ack) => {
+    const handleLinkAddedAck = (ack: {
+      source?: string;
+      target?: string;
+      status?: string;
+      message?: string;
+    }) => {
       const { source, target, status, message } = ack || {};
       const edgeId = `${source}-${target}`;
       if (status === "added") {
-        // Mark not pending and ensure it's present
         setEdges((eds) => {
           const exists = eds.find((e) => e.id === edgeId);
           if (exists) {
             return eds.map((e) =>
-              e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e
+              e.id === edgeId
+                ? { ...e, data: { ...e.data, pending: false } }
+                : e,
             );
           }
-          // If not exists, add minimal edge (server will send topology_update soon)
           return [
             ...eds,
             {
               id: edgeId,
-              source,
-              target,
+              source: source as string,
+              target: target as string,
               type: "custom",
               data: { onAction: handleEdgeAction, pending: false },
             },
@@ -251,20 +306,23 @@ const TopologyGraph = () => {
         });
         toast.success(`Lien ajouté: ${source} → ${target}`);
       } else {
-        // Error: clear pending and notify
         setEdges((eds) =>
-          eds.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e))
+          eds.map((e) =>
+            e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e,
+          ),
         );
         setPendingEdges((p) => {
           const copy = { ...p };
           delete copy[edgeId];
           return copy;
         });
-        toast.error(`Échec ajout lien ${source} → ${target}: ${message || "Erreur"}`);
+        toast.error(
+          `Échec ajout lien ${source} → ${target}: ${message || "Erreur"}`,
+        );
       }
-    });
+    };
 
-    newSocket.on("network_stats_update", (data: NetworkStatsUpdate) => {
+    const handleNetworkStatsUpdate = (data: NetworkStatsUpdate) => {
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === data.hostname) {
@@ -274,32 +332,35 @@ const TopologyGraph = () => {
             };
           }
           return node;
-        })
+        }),
       );
-    });
+    };
 
-    newSocket.on("link_stats_update", (data: LinkStatsUpdate) => {
+    const handleLinkStatsUpdate = (data: LinkStatsUpdate) => {
       const sortedIds = [data.source, data.target].sort();
       const edgeId = `${sortedIds[0]}-${sortedIds[1]}`;
 
       setEdges((eds) =>
         eds.map((edge) => {
           if (edge.id === edgeId) {
-            // Clone data to avoid mutation
             const newData = { ...edge.data };
             const updatedLatency = data.latency;
             const updatedLoss = data.packet_loss || 0;
 
-            // Update the specific direction stats
             if (data.source === sortedIds[0]) {
-               // Forward update
-               newData.forward = { ...newData.forward, latency: updatedLatency, packet_loss: updatedLoss };
+              newData.forward = {
+                ...newData.forward,
+                latency: updatedLatency,
+                packet_loss: updatedLoss,
+              };
             } else {
-               // Backward update
-               newData.backward = { ...newData.backward, latency: updatedLatency, packet_loss: updatedLoss };
+              newData.backward = {
+                ...newData.backward,
+                latency: updatedLatency,
+                packet_loss: updatedLoss,
+              };
             }
 
-            // Recalculate color based on max latency and max loss
             const lat1 = newData.forward?.latency || 0;
             const lat2 = newData.backward?.latency || 0;
             const maxLat = Math.max(lat1, lat2);
@@ -317,14 +378,24 @@ const TopologyGraph = () => {
             };
           }
           return edge;
-        })
+        }),
       );
-    });
+    };
+
+    socket.on("topology_update", handleTopologyUpdate);
+    socket.on("link_removed_ack", handleLinkRemovedAck);
+    socket.on("link_added_ack", handleLinkAddedAck);
+    socket.on("network_stats_update", handleNetworkStatsUpdate);
+    socket.on("link_stats_update", handleLinkStatsUpdate);
 
     return () => {
-      newSocket.close();
+      socket.off("topology_update", handleTopologyUpdate);
+      socket.off("link_removed_ack", handleLinkRemovedAck);
+      socket.off("link_added_ack", handleLinkAddedAck);
+      socket.off("network_stats_update", handleNetworkStatsUpdate);
+      socket.off("link_stats_update", handleLinkStatsUpdate);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [socket, handleEdgeAction, setNodes, setEdges]);
 
   const processTopologyData = useCallback(
     (data: TopologyData) => {
@@ -351,7 +422,10 @@ const TopologyGraph = () => {
       };
 
       // Group links by pair to create unified bidirectional edges
-      const linkPairs = new Map<string, { forward?: TopologyLink; backward?: TopologyLink }>();
+      const linkPairs = new Map<
+        string,
+        { forward?: TopologyLink; backward?: TopologyLink }
+      >();
 
       data.links.forEach((l) => {
         // Create a consistent key for the pair (e.g., "A-B")
@@ -378,34 +452,37 @@ const TopologyGraph = () => {
         const [source, target] = key.split("-");
         const sourceStatus = getNodeStatus(source);
         const targetStatus = getNodeStatus(target);
-        
+
         // A link is "active" for visual purposes if both nodes are online
-        const isNodesOnline = sourceStatus === "online" && targetStatus === "online";
-        
+        const isNodesOnline =
+          sourceStatus === "online" && targetStatus === "online";
+
         // We consider the edge "monitoring" if at least one direction is monitoring
-        const isMonitoring = (pair.forward?.monitoring !== false) || (pair.backward?.monitoring !== false);
+        const isMonitoring =
+          pair.forward?.monitoring !== false ||
+          pair.backward?.monitoring !== false;
 
         // Calculate aggregate label or state
         // We will pass the full objects to CustomEdge to handle the rendering
-        
-        let strokeColor = isNodesOnline ? "#64748b" : "#cbd5e1";
-        
-        if (isNodesOnline && isMonitoring) {
-             const latForward = pair.forward?.latency;
-             const latBackward = pair.backward?.latency;
-             
-             // If we have at least one latency reading, determine color based on the worst (max) latency
-             if (latForward !== undefined || latBackward !== undefined) {
-                 const val1 = latForward || 0;
-                 const val2 = latBackward || 0;
-                 const maxLat = Math.max(val1, val2);
-                 
-                 const loss1 = pair.forward?.packet_loss || 0;
-                 const loss2 = pair.backward?.packet_loss || 0;
-                 const maxLoss = Math.max(loss1, loss2);
 
-                 strokeColor = determineLinkColor(maxLat, maxLoss);
-             }
+        let strokeColor = isNodesOnline ? "#64748b" : "#cbd5e1";
+
+        if (isNodesOnline && isMonitoring) {
+          const latForward = pair.forward?.latency;
+          const latBackward = pair.backward?.latency;
+
+          // If we have at least one latency reading, determine color based on the worst (max) latency
+          if (latForward !== undefined || latBackward !== undefined) {
+            const val1 = latForward || 0;
+            const val2 = latBackward || 0;
+            const maxLat = Math.max(val1, val2);
+
+            const loss1 = pair.forward?.packet_loss || 0;
+            const loss2 = pair.backward?.packet_loss || 0;
+            const maxLoss = Math.max(loss1, loss2);
+
+            strokeColor = determineLinkColor(maxLat, maxLoss);
+          }
         }
 
         newEdges.push({
@@ -436,7 +513,11 @@ const TopologyGraph = () => {
             return {
               ...nn,
               position: existing.position,
-              data: { ...nn.data, stats: existing.data.stats, onAction: handleNodeAction },
+              data: {
+                ...nn.data,
+                stats: existing.data.stats,
+                onAction: handleNodeAction,
+              },
             };
           }
           return nn;
@@ -448,13 +529,16 @@ const TopologyGraph = () => {
         return newEdges.map((ne) => {
           const existing = currentEdges.find((ce) => ce.id === ne.id);
           if (existing && existing.data?.pending) {
-            return { ...ne, data: { ...ne.data, pending: true, onAction: handleEdgeAction } };
+            return {
+              ...ne,
+              data: { ...ne.data, pending: true, onAction: handleEdgeAction },
+            };
           }
           return { ...ne, data: { ...ne.data, onAction: handleEdgeAction } };
         });
       });
     },
-    [handleNodeAction, handleEdgeAction, setNodes, setEdges]
+    [handleNodeAction, handleEdgeAction, setNodes, setEdges],
   );
 
   const processRef = useRef<((data: TopologyData) => void) | null>(null);
@@ -472,7 +556,11 @@ const TopologyGraph = () => {
       )}
 
       <div className="absolute top-4 right-4 z-10 flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => window.location.reload()}
+        >
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
@@ -501,9 +589,11 @@ const TopologyGraph = () => {
         onClose={() => setSelectedNodeId(null)}
         nodeId={selectedNodeId}
         nodeData={nodes.find((n) => n.id === selectedNodeId)?.data}
-        onCommand={(cmd, params) => selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)}
+        onCommand={(cmd, params) =>
+          selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)
+        }
       />
-      
+
       {/* Command console moved to global layout */}
     </div>
   );
