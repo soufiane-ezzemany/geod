@@ -23,6 +23,7 @@ from domain.models.agent import Agent
 from infrastructure.parsers.ping_parser import parse_ping_output
 from infrastructure.external.prometheus_client import PrometheusClient
 from application.services.metrics_service import MetricsService
+from application.services.agent_registry import AgentRegistry
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -36,6 +37,7 @@ logger = setup_logging()
 # Services
 prom_client = PrometheusClient()
 metrics_service = MetricsService()
+agent_registry = AgentRegistry()
 
 # Global State
 class TopologyManager:
@@ -105,11 +107,6 @@ class TopologyManager:
 
 topology_manager = TopologyManager()
 
-# Map hostname (stable ID) -> current socket SID
-hostname_to_sid = {}
-# Map sid -> agent info
-sid_to_agent = {}
-
 @app.route('/')
 def hello_world():
     return 'GeoD Network Monitoring Backend'
@@ -131,7 +128,7 @@ def update_topology():
 
 @app.route('/api/agents', methods=['GET'])
 def get_agents():
-    return jsonify([agent.to_dict() for agent in sid_to_agent.values()])
+    return jsonify([agent.to_dict() for agent in agent_registry.get_all()])
 
 @app.route('/metrics')
 def metrics():
@@ -257,20 +254,18 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
-    if sid in sid_to_agent:
-        agent = sid_to_agent.pop(sid)
+    agent = agent_registry.unregister(sid)
+
+    if agent:
         hostname = agent.hostname
-        if hostname and hostname in hostname_to_sid:
-            del hostname_to_sid[hostname]
+        # Mark as offline in topology
+        topology_manager.add_node(hostname, data={'status': 'offline'})
 
-            # Mark as offline in topology
-            topology_manager.add_node(hostname, data={'status': 'offline'})
+        logger.info(f"Agent disconnected: {hostname} ({sid})")
+        socketio.server.emit('agent_disconnected', {'agent_id': sid, 'hostname': hostname}, namespace='/')
 
-            logger.info(f"Agent disconnected: {hostname} ({sid})")
-            socketio.server.emit('agent_disconnected', {'agent_id': sid, 'hostname': hostname}, namespace='/')
-
-            # Broadcast updated topology so frontend sees the offline status
-            socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
+        # Broadcast updated topology so frontend sees the offline status
+        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
 
 @socketio.on('register_agent')
 def handle_agent_registration(data):
@@ -286,8 +281,7 @@ def handle_agent_registration(data):
         last_heartbeat=datetime.now()
     )
 
-    sid_to_agent[sid] = agent
-    hostname_to_sid[hostname] = sid
+    agent_registry.register(agent)
 
     # Add to topology graph as a node
     topology_manager.add_node(hostname, data={'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'})
@@ -315,17 +309,19 @@ def handle_agent_registration(data):
 @socketio.on('heartbeat')
 def handle_heartbeat(data):
     sid = request.sid
-    if sid in sid_to_agent:
-        sid_to_agent[sid].update_heartbeat()
+    agent = agent_registry.get_by_sid(sid)
+    if agent:
+        agent.update_heartbeat()
 
 @socketio.on('network_stats')
 def handle_network_stats(data):
     sid = request.sid
-    if sid in sid_to_agent:
+    agent = agent_registry.get_by_sid(sid)
+    if agent:
         # Treat stats as a heartbeat (Alive!)
-        sid_to_agent[sid].update_heartbeat()
+        agent.update_heartbeat()
 
-        hostname = sid_to_agent[sid].hostname
+        hostname = agent.hostname
 
         # Update Prometheus Metrics
         try:
@@ -355,11 +351,12 @@ def handle_command_result(data):
     sid = request.sid
     command = data.get('command')
     result_data = data.get('data')
-    
-    if sid not in sid_to_agent:
+
+    agent = agent_registry.get_by_sid(sid)
+    if not agent:
         return
 
-    source_hostname = sid_to_agent[sid].hostname
+    source_hostname = agent.hostname
 
     if command == 'ping' and result_data:
         target_ip = result_data.get('target')
@@ -370,9 +367,9 @@ def handle_command_result(data):
         
         # Fallback method: Reverse lookup from IP
         if not target_hostname and target_ip:
-            for h_name, s_id in hostname_to_sid.items():
-                if sid_to_agent[s_id].get('ip_address') == target_ip:
-                    target_hostname = h_name
+            for agent_item in agent_registry.get_all():
+                if agent_item.ip_address == target_ip:
+                    target_hostname = agent_item.hostname
                     break
         
         if target_hostname:
@@ -420,9 +417,9 @@ def handle_trigger_command(data):
     target_hostname = data.get('target_hostname')
     command = data.get('command')
     params = data.get('params', {})
-    
-    if target_hostname in hostname_to_sid:
-        target_sid = hostname_to_sid[target_hostname]
+
+    target_sid = agent_registry.get_sid_by_hostname(target_hostname)
+    if target_sid:
         emit('execute_command', {
             'command': command,
             'params': params,
@@ -450,11 +447,12 @@ def monitor_links_loop():
             for link in links:
                 source = link.get('source')
                 target = link.get('target')
-                
+
                 # Check if both are connected
-                if source in hostname_to_sid and target in hostname_to_sid:
-                    source_sid = hostname_to_sid[source]
-                    target_agent = sid_to_agent[hostname_to_sid[target]]
+                source_sid = agent_registry.get_sid_by_hostname(source)
+                target_agent = agent_registry.get_by_hostname(target)
+
+                if source_sid and target_agent:
                     target_ip = target_agent.ip_address
 
                     if target_ip:
