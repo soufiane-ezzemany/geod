@@ -18,11 +18,13 @@ eventlet.monkey_patch()
 
 from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
+from config import settings
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'geod-secret-key'
-CORS(app)
+app.config['SECRET_KEY'] = settings.SECRET_KEY
+CORS(app, origins=settings.CORS_ALLOWED_ORIGINS)
 # async_mode will auto-detect eventlet
-socketio = SocketIO(app, cors_allowed_origins="*") 
+socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS) 
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
