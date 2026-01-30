@@ -13,12 +13,12 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from config import settings
 from config.logging_config import setup_logging
 from domain.models.agent import Agent
-from infrastructure.parsers.ping_parser import parse_ping_output
 from infrastructure.external.prometheus_client import PrometheusClient
 from application.services.metrics_service import MetricsService
 from application.services.agent_registry import AgentRegistry
 from application.services.topology_service import TopologyService
 from application.services.history_service import HistoryService
+from application.services.command_handler import CommandHandler
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -35,6 +35,7 @@ metrics_service = MetricsService()
 agent_registry = AgentRegistry()
 topology_service = TopologyService()
 history_service = HistoryService(prom_client)
+command_handler = CommandHandler(agent_registry, topology_service, metrics_service)
 
 @app.route('/')
 def hello_world():
@@ -193,62 +194,26 @@ def handle_command_result(data):
     sid = request.sid
     command = data.get('command')
     result_data = data.get('data')
+    params = data.get('params', {})
 
-    agent = agent_registry.get_by_sid(sid)
-    if not agent:
-        return
+    # Process command result through handler
+    update_info = command_handler.handle_command_result(
+        sid, command, result_data, params
+    )
 
-    source_hostname = agent.hostname
+    # Broadcast link stats update if available
+    if update_info:
+        socketio.server.emit('link_stats_update', update_info, namespace='/')
 
-    if command == 'ping' and result_data:
-        target_ip = result_data.get('target')
-        params = data.get('params', {})
-        
-        # Primary method: Use echoed target_hostname from params
-        target_hostname = params.get('target_hostname')
-        
-        # Fallback method: Reverse lookup from IP
-        if not target_hostname and target_ip:
-            for agent_item in agent_registry.get_all():
-                if agent_item.ip_address == target_ip:
-                    target_hostname = agent_item.hostname
-                    break
-        
-        if target_hostname:
-            # Parse ping output to get latency and packet loss
-            output = result_data.get('output', '')
-            latency, packet_loss = parse_ping_output(output)
-
-            logger.info(f"Link Update: {source_hostname} -> {target_hostname} : {latency}ms, {packet_loss}% loss")
-            
-            # We update if valid latency OR significant packet loss (100% loss might show latency=-1)
-            if latency > 0 or packet_loss > 0:
-                stats_update = {'latency': latency, 'packet_loss': packet_loss}
-                topology_service.update_link_stats(source_hostname, target_hostname, stats_update)
-
-                # Broadcast topology update
-                socketio.server.emit('link_stats_update', {
-                    'source': source_hostname,
-                    'target': target_hostname,
-                    'latency': latency,
-                    'packet_loss': packet_loss
-                }, namespace='/')
-
-                # Update Prometheus Metrics (Link)
-                try:
-                    metrics_service.update_link_metrics(source_hostname, target_hostname, latency, packet_loss)
-                    avgs = topology_service.get_node_average_stats(source_hostname)
-                    metrics_service.update_average_metrics(source_hostname, avgs['latency'], avgs['packet_loss'])
-                except Exception as e:
-                    logger.error(f"Error updating latency metrics: {e}")
-
-    # Only broadcast to console if it's NOT a background monitoring request
+    # Broadcast to console if not a monitoring request
     request_id = data.get('request_id', '')
-    if not str(request_id).startswith('monitor_'):
-        socketio.server.emit('command_result_update', {
-            'hostname': source_hostname,
-            'result': data
-        }, namespace='/')
+    if not command_handler.is_monitoring_request(request_id):
+        agent = agent_registry.get_by_sid(sid)
+        if agent:
+            socketio.server.emit('command_result_update', {
+                'hostname': agent.hostname,
+                'result': data
+            }, namespace='/')
 
 @socketio.on('trigger_command')
 def handle_trigger_command(data):
