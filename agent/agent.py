@@ -14,6 +14,7 @@ import json
 from typing import Dict, Any, Optional
 from datetime import datetime
 import threading
+from tc_manager import TCManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -279,7 +280,10 @@ class NetworkAgent:
 
             elif command == 'stop_iperf':
                 result['data'] = self._stop_iperf()
-            
+
+            elif command == 'advanced_traffic_control':
+                result['data'] = self._set_advanced_traffic_control(params)
+
             else:
                 result['status'] = 'error'
                 result['error'] = f"Unknown command: {command}"
@@ -387,6 +391,58 @@ class NetworkAgent:
             return results
         except subprocess.CalledProcessError as e:
             return {'error': str(e), 'output': e.output, 'command': ' '.join(cmd)}
+
+    def _set_advanced_traffic_control(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if platform.system() != 'Linux':
+            return {'error': 'Traffic control only supported on Linux'}
+
+        interface = params.get('interface') or self._get_default_interface()
+        rules = params.get('rules', [])
+        mode = params.get('mode', 'replace')
+
+        logger.info(f"Setting advanced traffic control on {interface}: {len(rules)} rules, mode={mode}")
+
+        tc_manager = TCManager()
+
+        for rule in rules:
+            if not tc_manager.validate_rule(rule):
+                return {'error': f'Invalid rule: {rule}'}
+
+        if mode == 'replace':
+            tc_manager.remove_all(interface)
+
+        if not rules:
+            return {'status': 'cleared', 'interface': interface}
+
+        try:
+            tc_manager.setup_hierarchy(interface)
+        except Exception as e:
+            return {'error': f'Failed to setup hierarchy: {str(e)}'}
+
+        results = []
+        for idx, rule in enumerate(rules):
+            class_id = 10 + idx
+            try:
+                tc_manager.add_rule(interface, rule, class_id)
+                results.append({
+                    'rule': rule,
+                    'status': 'success',
+                    'class_id': class_id
+                })
+            except Exception as e:
+                results.append({
+                    'rule': rule,
+                    'status': 'error',
+                    'error': str(e)
+                })
+                logger.error(f"Failed to add rule {idx}: {e}")
+
+        return {
+            'status': 'applied',
+            'interface': interface,
+            'rules_count': len(rules),
+            'results': results
+        }
 
     def _start_iperf_server(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Start iperf3 server"""
