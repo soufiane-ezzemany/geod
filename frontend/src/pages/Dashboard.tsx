@@ -1,7 +1,7 @@
 import { StatsCard } from "@/components/stats/StatsCard";
 import TopologyGraph from "@/components/topology/TopologyGraph";
-import { API_ENDPOINTS } from "@/config";
 import { useSocket } from "@/context/socket-context";
+import { apiService } from "@/services/api.service";
 import type { TopologyData, TopologyLink, TopologyNode } from "@/types/network";
 import { Activity, AlertCircle, Layers, Network } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -43,14 +43,15 @@ export default function Dashboard() {
       });
     };
 
-    // Initial fetch
-    fetch(API_ENDPOINTS.topology)
-      .then((res) => res.json())
-      .then((data: TopologyData) => {
+    // Initial fetch using API service
+    apiService
+      .getTopology()
+      .then((data) => {
         if (data.nodes && data.links) {
           calculateStats(data.nodes, data.links);
         }
-      });
+      })
+      .catch((err) => console.error("Failed to fetch topology:", err));
 
     if (!socket) return;
 
