@@ -4,7 +4,7 @@ services:
     volumes:
       - ../backend:/app
     ports:
-      - "5000:5000"
+      - "5001:5000"
     networks:
       - geod-net
 
@@ -15,14 +15,14 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_BACKEND_URL=http://localhost:5000
+      - VITE_BACKEND_URL=http://localhost:5001
     networks:
       - geod-net
     command: npm run dev -- --host 0.0.0.0
 
   agent-paris:
     build: ../agent
-    command: python agent.py --backend http://host.docker.internal:5000
+    command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
     networks:
@@ -30,7 +30,7 @@ services:
 
   agent-ny:
     build: ../agent
-    command: python agent.py --backend http://host.docker.internal:5000
+    command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
     networks:
@@ -38,7 +38,7 @@ services:
 
   agent-tokyo:
     build: ../agent
-    command: python agent.py --backend http://host.docker.internal:5000
+    command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
     networks:
