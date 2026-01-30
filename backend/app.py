@@ -63,6 +63,58 @@ def get_history():
         logger.error(f"Error fetching history for {hostname}: {e}")
         return jsonify({'error': 'Failed to fetch history'}), 500
 
+@app.route('/api/chaos/rules/<hostname>', methods=['POST'])
+def set_chaos_rules(hostname):
+    data = request.json
+    rules = data.get('rules', [])
+    interface = data.get('interface')
+    mode = data.get('mode', 'replace')
+
+    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
+    if not target_sid:
+        return jsonify({'error': 'Agent not found'}), 404
+
+    socketio.emit('execute_command', {
+        'command': 'advanced_traffic_control',
+        'params': {
+            'rules': rules,
+            'interface': interface,
+            'mode': mode
+        },
+        'request_id': f"chaos_{int(time.time())}"
+    }, room=target_sid)
+
+    return jsonify({
+        'status': 'sent',
+        'hostname': hostname,
+        'rules_count': len(rules)
+    })
+
+@app.route('/api/chaos/rules/<hostname>', methods=['DELETE'])
+def clear_chaos_rules(hostname):
+    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
+    if not target_sid:
+        return jsonify({'error': 'Agent not found'}), 404
+
+    socketio.emit('execute_command', {
+        'command': 'advanced_traffic_control',
+        'params': {'rules': []},
+        'request_id': f"chaos_clear_{int(time.time())}"
+    }, room=target_sid)
+
+    return jsonify({
+        'status': 'cleared',
+        'hostname': hostname
+    })
+
+@app.route('/api/chaos/rules/<hostname>', methods=['GET'])
+def get_chaos_rules(hostname):
+    return jsonify({
+        'hostname': hostname,
+        'rules': [],
+        'message': 'Rule listing not yet implemented'
+    })
+
 @socketio.on('connect')
 def handle_connect():
     logger.info(f'Client connected: {request.sid}')
