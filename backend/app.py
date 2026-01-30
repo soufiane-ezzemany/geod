@@ -15,13 +15,14 @@ import eventlet
 # Monkey patch for Eventlet (Green Threads) concurrency
 eventlet.monkey_patch()
 
-from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from config import settings
 from config.logging_config import setup_logging
 from domain.models.agent import Agent
 from infrastructure.parsers.ping_parser import parse_ping_output
 from infrastructure.external.prometheus_client import PrometheusClient
+from application.services.metrics_service import MetricsService
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -32,8 +33,9 @@ socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS)
 # Logging setup
 logger = setup_logging()
 
-# Prometheus client
+# Services
 prom_client = PrometheusClient()
+metrics_service = MetricsService()
 
 # Global State
 class TopologyManager:
@@ -102,30 +104,6 @@ class TopologyManager:
             }
 
 topology_manager = TopologyManager()
-
-# Prometheus Metrics
-cpu_usage_gauge = Gauge('geod_cpu_usage_percent', 'CPU Usage Percent', ['hostname'])
-memory_usage_gauge = Gauge('geod_memory_usage_percent', 'Memory Usage Percent', ['hostname'])
-disk_usage_gauge = Gauge('geod_disk_usage_percent', 'Disk Usage Percent', ['hostname'])
-bytes_sent_gauge = Gauge('geod_network_bytes_sent_total', 'Network Bytes Sent Total', ['hostname'])
-bytes_recv_gauge = Gauge('geod_network_bytes_recv_total', 'Network Bytes Recv Total', ['hostname'])
-packets_sent_gauge = Gauge('geod_network_packets_sent_total', 'Network Packets Sent Total', ['hostname'])
-packets_recv_gauge = Gauge('geod_network_packets_recv_total', 'Network Packets Recv Total', ['hostname'])
-errors_in_gauge = Gauge('geod_network_errors_in_total', 'Network Errors In Total', ['hostname'])
-errors_out_gauge = Gauge('geod_network_errors_out_total', 'Network Errors Out Total', ['hostname'])
-drops_in_gauge = Gauge('geod_network_drops_in_total', 'Network Drops In Total', ['hostname'])
-drops_out_gauge = Gauge('geod_network_drops_out_total', 'Network Drops Out Total', ['hostname'])
-active_connections_gauge = Gauge('geod_network_active_connections', 'Network Active Connections', ['hostname'])
-latency_link_gauge = Gauge('geod_network_latency_ms', 'Network Latency MS', ['source', 'target'])
-packet_loss_link_gauge = Gauge('geod_network_packet_loss_percent', 'Network Packet Loss Percent', ['source', 'target'])
-latency_avg_gauge = Gauge('geod_network_latency_avg_ms', 'Network Latency Average MS', ['hostname'])
-packet_loss_avg_gauge = Gauge('geod_network_packet_loss_avg_percent', 'Network Packet Loss Average Percent', ['hostname'])
-
-memory_used_gauge = Gauge('geod_memory_used_bytes', 'Memory Used Bytes', ['hostname'])
-memory_total_gauge = Gauge('geod_memory_total_bytes', 'Memory Total Bytes', ['hostname'])
-disk_used_gauge = Gauge('geod_disk_used_bytes', 'Disk Used Bytes', ['hostname'])
-disk_total_gauge = Gauge('geod_disk_total_bytes', 'Disk Total Bytes', ['hostname'])
-
 
 # Map hostname (stable ID) -> current socket SID
 hostname_to_sid = {}
@@ -348,29 +326,11 @@ def handle_network_stats(data):
         sid_to_agent[sid].update_heartbeat()
 
         hostname = sid_to_agent[sid].hostname
-        
+
         # Update Prometheus Metrics
         try:
-            # System
-            cpu_usage_gauge.labels(hostname=hostname).set(data['system']['cpu_percent'])
-            memory_usage_gauge.labels(hostname=hostname).set(data['system']['memory']['percent'])
-            memory_used_gauge.labels(hostname=hostname).set(data['system']['memory']['used'])
-            memory_total_gauge.labels(hostname=hostname).set(data['system']['memory']['total'])
-            disk_usage_gauge.labels(hostname=hostname).set(data['system']['disk']['percent'])
-            disk_used_gauge.labels(hostname=hostname).set(data['system']['disk']['used'])
-            disk_total_gauge.labels(hostname=hostname).set(data['system']['disk']['total'])
-            
-            # Network
-            bytes_sent_gauge.labels(hostname=hostname).set(data['network']['bytes_sent'])
-            bytes_recv_gauge.labels(hostname=hostname).set(data['network']['bytes_recv'])
-            packets_sent_gauge.labels(hostname=hostname).set(data['network']['packets_sent'])
-            packets_recv_gauge.labels(hostname=hostname).set(data['network']['packets_recv'])
-            errors_in_gauge.labels(hostname=hostname).set(data['network']['errors_in'])
-            errors_out_gauge.labels(hostname=hostname).set(data['network']['errors_out'])
-            drops_in_gauge.labels(hostname=hostname).set(data['network']['drop_in'])
-            drops_out_gauge.labels(hostname=hostname).set(data['network']['drop_out'])
-            active_connections_gauge.labels(hostname=hostname).set(data['network']['active_connections'])
-            
+            metrics_service.update_system_metrics(hostname, data['system'])
+            metrics_service.update_network_metrics(hostname, data['network'])
         except Exception as e:
             logger.error(f"Error updating metrics for {hostname}: {e}")
 
@@ -437,13 +397,9 @@ def handle_command_result(data):
 
                 # Update Prometheus Metrics (Link)
                 try:
-                    latency_link_gauge.labels(source=source_hostname, target=target_hostname).set(latency)
-                    packet_loss_link_gauge.labels(source=source_hostname, target=target_hostname).set(packet_loss)
-                    
-                    # Update Averages
+                    metrics_service.update_link_metrics(source_hostname, target_hostname, latency, packet_loss)
                     avgs = topology_manager.get_node_average_stats(source_hostname)
-                    latency_avg_gauge.labels(hostname=source_hostname).set(avgs['latency'])
-                    packet_loss_avg_gauge.labels(hostname=source_hostname).set(avgs['packet_loss'])
+                    metrics_service.update_average_metrics(source_hostname, avgs['latency'], avgs['packet_loss'])
                 except Exception as e:
                     logger.error(f"Error updating latency metrics: {e}")
 
