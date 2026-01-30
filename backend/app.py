@@ -2,14 +2,7 @@ from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from datetime import datetime
-import networkx as nx
-import threading
 import time
-import json
-import os
-import re
-import functools
-import requests
 import eventlet
 
 # Monkey patch for Eventlet (Green Threads) concurrency
@@ -24,6 +17,7 @@ from infrastructure.parsers.ping_parser import parse_ping_output
 from infrastructure.external.prometheus_client import PrometheusClient
 from application.services.metrics_service import MetricsService
 from application.services.agent_registry import AgentRegistry
+from application.services.topology_service import TopologyService
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -38,74 +32,7 @@ logger = setup_logging()
 prom_client = PrometheusClient()
 metrics_service = MetricsService()
 agent_registry = AgentRegistry()
-
-# Global State
-class TopologyManager:
-    def __init__(self):
-        self.graph = nx.DiGraph()
-        # Ensure we have at least an empty structure
-        self.lock = threading.Lock()
-
-    def add_node(self, node_id, data=None):
-        with self.lock:
-            self.graph.add_node(node_id, **(data or {}))
-
-    def add_link(self, source, target, data=None):
-        with self.lock:
-            self.graph.add_edge(source, target, **(data or {}))
-
-    def update_link_stats(self, source, target, stats):
-        with self.lock:
-            if self.graph.has_edge(source, target):
-                # Update existing edge data with new stats (latency, packet_loss, etc.)
-                for k, v in stats.items():
-                    self.graph[source][target][k] = v
-                self.graph[source][target]['last_updated'] = datetime.now().isoformat()
-            else:
-                # Create if it doesn't exist (dynamic discovery)
-                self.graph.add_edge(source, target, **stats, last_updated=datetime.now().isoformat())
-
-    def get_topology_json(self):
-        with self.lock:
-            return nx.node_link_data(self.graph)
-    
-    def load_from_dict(self, data):
-        with self.lock:
-            self.graph = nx.node_link_graph(data)
-
-    def get_node_average_stats(self, node_id):
-        with self.lock:
-            if not self.graph.has_node(node_id):
-                return {'latency': 0, 'packet_loss': 0}
-            
-            # Get all outgoing edges
-            edges = self.graph.out_edges(node_id, data=True)
-            if not edges:
-                return {'latency': 0, 'packet_loss': 0}
-            
-            total_latency = 0
-            total_loss = 0
-            count = 0
-            
-            for _, _, data in edges:
-                # Only count links that have stats
-                if 'latency' in data:
-                    l = data.get('latency', -1)
-                    p = data.get('packet_loss', 0)
-                    if l >= 0: # Valid latency
-                        total_latency += l
-                        total_loss += p
-                        count += 1
-            
-            if count == 0:
-                return {'latency': 0, 'packet_loss': 0}
-            
-            return {
-                'latency': round(total_latency / count, 2),
-                'packet_loss': round(total_loss / count, 2)
-            }
-
-topology_manager = TopologyManager()
+topology_service = TopologyService()
 
 @app.route('/')
 def hello_world():
@@ -113,15 +40,15 @@ def hello_world():
 
 @app.route('/api/topology', methods=['GET'])
 def get_topology():
-    return jsonify(topology_manager.get_topology_json())
+    return jsonify(topology_service.get_topology_json())
 
 @app.route('/api/topology', methods=['POST'])
 def update_topology():
     data = request.json
     try:
-        topology_manager.load_from_dict(data)
+        topology_service.load_from_dict(data)
         # Broadcast update to frontend
-        socketio.emit('topology_update', topology_manager.get_topology_json())
+        socketio.emit('topology_update', topology_service.get_topology_json())
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -259,13 +186,13 @@ def handle_disconnect():
     if agent:
         hostname = agent.hostname
         # Mark as offline in topology
-        topology_manager.add_node(hostname, data={'status': 'offline'})
+        topology_service.add_node(hostname, data={'status': 'offline'})
 
         logger.info(f"Agent disconnected: {hostname} ({sid})")
         socketio.server.emit('agent_disconnected', {'agent_id': sid, 'hostname': hostname}, namespace='/')
 
         # Broadcast updated topology so frontend sees the offline status
-        socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
+        socketio.server.emit('topology_update', topology_service.get_topology_json(), namespace='/')
 
 @socketio.on('register_agent')
 def handle_agent_registration(data):
@@ -283,18 +210,16 @@ def handle_agent_registration(data):
 
     agent_registry.register(agent)
 
-    # Add to topology graph as a node
-    topology_manager.add_node(hostname, data={'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'})
-    
     # Auto-connect to all existing agents (Full Mesh)
     try:
-        current_topo = topology_manager.get_topology_json()
-        existing_nodes = [n['id'] for n in current_topo.get('nodes', []) if n['id'] != hostname and n.get('type') == 'agent']
-        
+        topology_service.auto_connect_agent(
+            hostname,
+            {'ip': data.get('ip_address'), 'type': 'agent', 'status': 'online'}
+        )
+
+        # Log connections
+        existing_nodes = [n for n in topology_service.get_all_agent_nodes() if n != hostname]
         for other_node in existing_nodes:
-            # Create bidirectional links if they don't exist
-            topology_manager.add_link(hostname, other_node, {'monitoring': True, 'type': 'auto'})
-            topology_manager.add_link(other_node, hostname, {'monitoring': True, 'type': 'auto'})
             logger.info(f"Auto-connected {hostname} <-> {other_node}")
     except Exception as e:
         logger.error(f"Error in auto-connection logic: {e}")
@@ -302,9 +227,9 @@ def handle_agent_registration(data):
     logger.info(f"Agent registered: {hostname} ({sid})")
     emit('registration_confirmed', {'agent_id': sid, 'status': 'registered'})
     socketio.server.emit('agent_connected', agent.to_dict(), namespace='/')
-    
+
     # Broadcast updated topology immediately so new node appears
-    socketio.server.emit('topology_update', topology_manager.get_topology_json(), namespace='/')
+    socketio.server.emit('topology_update', topology_service.get_topology_json(), namespace='/')
 
 @socketio.on('heartbeat')
 def handle_heartbeat(data):
@@ -331,7 +256,7 @@ def handle_network_stats(data):
             logger.error(f"Error updating metrics for {hostname}: {e}")
 
         # Inject Topology Stats (Latency/Loss)
-        topo_stats = topology_manager.get_node_average_stats(hostname)
+        topo_stats = topology_service.get_node_average_stats(hostname)
         data['network']['latency_avg'] = topo_stats['latency']
         data['network']['packet_loss_avg'] = topo_stats['packet_loss']
 
@@ -382,8 +307,8 @@ def handle_command_result(data):
             # We update if valid latency OR significant packet loss (100% loss might show latency=-1)
             if latency > 0 or packet_loss > 0:
                 stats_update = {'latency': latency, 'packet_loss': packet_loss}
-                topology_manager.update_link_stats(source_hostname, target_hostname, stats_update)
-                
+                topology_service.update_link_stats(source_hostname, target_hostname, stats_update)
+
                 # Broadcast topology update
                 socketio.server.emit('link_stats_update', {
                     'source': source_hostname,
@@ -395,7 +320,7 @@ def handle_command_result(data):
                 # Update Prometheus Metrics (Link)
                 try:
                     metrics_service.update_link_metrics(source_hostname, target_hostname, latency, packet_loss)
-                    avgs = topology_manager.get_node_average_stats(source_hostname)
+                    avgs = topology_service.get_node_average_stats(source_hostname)
                     metrics_service.update_average_metrics(source_hostname, avgs['latency'], avgs['packet_loss'])
                 except Exception as e:
                     logger.error(f"Error updating latency metrics: {e}")
@@ -441,7 +366,7 @@ def monitor_links_loop():
         
         try:
             # We need a snapshot of the graph to iterate safely
-            graph_data = topology_manager.get_topology_json()
+            graph_data = topology_service.get_topology_json()
             links = graph_data.get('links', [])
             
             for link in links:
