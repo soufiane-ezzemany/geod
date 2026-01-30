@@ -2,26 +2,18 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Server } from "lucide-react";
-import { API_ENDPOINTS } from "@/config";
 import { useSocket } from "@/context/socket-context";
-
-interface AgentInfo {
-  sid: string;
-  hostname: string;
-  ip_address: string;
-  os: string;
-  connected_at: string;
-  last_heartbeat: string;
-}
+import { apiService } from "@/services/api.service";
+import type { AgentInfo } from "@/types/network";
 
 export default function Nodes() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const { socket } = useSocket();
 
   useEffect(() => {
-    // Initial Fetch
-    fetch(API_ENDPOINTS.agents)
-      .then((res) => res.json())
+    // Initial Fetch using API service
+    apiService
+      .getAgents()
       .then((data) => setAgents(data))
       .catch((err) => console.error("Failed to fetch agents:", err));
 

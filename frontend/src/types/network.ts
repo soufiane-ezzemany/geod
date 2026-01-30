@@ -1,3 +1,13 @@
+// Agent information from backend
+export interface AgentInfo {
+  sid: string;
+  hostname: string;
+  ip_address: string;
+  os: string;
+  connected_at: string;
+  last_heartbeat: string;
+}
+
 export interface NetworkInterfaceAddress {
   family: string;
   address: string;

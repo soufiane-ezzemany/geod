@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { API_ENDPOINTS } from "@/config";
 import { useSocket } from "@/context/socket-context";
+import { apiService } from "@/services/api.service";
 import type {
   BandwidthParams,
   CommandParams,
@@ -224,10 +224,11 @@ const TopologyGraph = () => {
 
   // Subscribe to socket events
   useEffect(() => {
-    // Request initial topology
-    fetch(API_ENDPOINTS.topology)
-      .then((res) => res.json())
-      .then((data: TopologyData) => processRef.current?.(data));
+    // Request initial topology using API service
+    apiService
+      .getTopology()
+      .then((data) => processRef.current?.(data))
+      .catch((err) => console.error("Failed to fetch topology:", err));
 
     if (!socket) return;
 
