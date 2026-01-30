@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from datetime import datetime
-import logging
 import networkx as nx
 import threading
 import time
@@ -19,16 +18,16 @@ eventlet.monkey_patch()
 from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from config import settings
+from config.logging_config import setup_logging
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
 CORS(app, origins=settings.CORS_ALLOWED_ORIGINS)
 # async_mode will auto-detect eventlet
-socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS) 
+socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS)
 
 # Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("Backend")
+logger = setup_logging()
 
 # Global State
 class TopologyManager:
