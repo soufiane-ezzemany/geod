@@ -7,10 +7,11 @@ import os
 en.init_logging(level=logging.INFO)
 en.check()
 
-# 2. Define the Infrastructure
+# 2. Define the Infrastructure (Multi-site: Nantes + Rennes)
 conf = (
-    en.G5kConf.from_settings(job_name="geod-agent-deploy", walltime="01:00:00")
-    .add_machine(roles=["agent"], cluster="ecotype", nodes=2, site="nantes")
+    en.G5kConf.from_settings(job_type=[], job_name="geod-agent-deploy", walltime="01:00:00")
+    .add_machine(roles=["agent", "nantes"], cluster="ecotype", nodes=2, site="nantes")
+    .add_machine(roles=["agent", "rennes"], cluster="paradoxe", nodes=1, site="rennes")
 )
 
 # 3. Reserve the nodes
