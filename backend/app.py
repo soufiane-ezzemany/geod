@@ -21,6 +21,7 @@ from config import settings
 from config.logging_config import setup_logging
 from domain.models.agent import Agent
 from infrastructure.parsers.ping_parser import parse_ping_output
+from infrastructure.external.prometheus_client import PrometheusClient
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -30,6 +31,9 @@ socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS)
 
 # Logging setup
 logger = setup_logging()
+
+# Prometheus client
+prom_client = PrometheusClient()
 
 # Global State
 class TopologyManager:
@@ -173,70 +177,41 @@ def get_history():
     if not all([hostname, start, end]):
         return jsonify({'error': 'Missing required parameters'}), 400
 
-    # We need to query multiple metrics to reconstruct the state
-    # CPU, Mem, Disk, Net Sent, Net Recv
-    
-    # Helper to query prometheus
-    def query_prom(query_str):
-        try:
-            # prometheus service is at 'prometheus:9090' in docker-compose
-            prom_host = os.environ.get('PROMETHEUS_URL', 'http://prometheus:9090')
-            
-            url = f'{prom_host}/api/v1/query_range'
-            response = requests.get(url, params={
-                'query': query_str,
-                'start': start,
-                'end': end,
-                'step': step
-            })
-            if response.status_code == 200:
-                return response.json().get('data', {}).get('result', [])
-            return []
-        except Exception as e:
-            logger.error(f"Prometheus query error: {e}")
-            return []
+    # Calculate rate window for counters
+    rate_window = prom_client.calculate_rate_window(step)
 
-    # Calculate a rate window that is at least 2x the step to ensure continuity, min 1m
-    # Step format examples: '15s', '1m', '5m'
-    step_val = 15
-    if step.endswith('s'): step_val = int(step[:-1])
-    elif step.endswith('m'): step_val = int(step[:-1]) * 60
-    elif step.endswith('h'): step_val = int(step[:-1]) * 3600
+    # Query all metrics
+    cpu_data = prom_client.query_range(f'geod_cpu_usage_percent{{hostname="{hostname}"}}', start, end, step)
     
-    rate_window = f"{max(60, step_val * 4)}s"
-
-    # Parallelize or just sequential? Sequential is safer for now.
-    cpu_data = query_prom(f'geod_cpu_usage_percent{{hostname="{hostname}"}}')
+    mem_percent_data = prom_client.query_range(f'geod_memory_usage_percent{{hostname="{hostname}"}}', start, end, step)
+    mem_used_data = prom_client.query_range(f'geod_memory_used_bytes{{hostname="{hostname}"}}', start, end, step)
+    mem_total_data = prom_client.query_range(f'geod_memory_total_bytes{{hostname="{hostname}"}}', start, end, step)
     
-    mem_percent_data = query_prom(f'geod_memory_usage_percent{{hostname="{hostname}"}}')
-    mem_used_data = query_prom(f'geod_memory_used_bytes{{hostname="{hostname}"}}')
-    mem_total_data = query_prom(f'geod_memory_total_bytes{{hostname="{hostname}"}}')
-    
-    disk_percent_data = query_prom(f'geod_disk_usage_percent{{hostname="{hostname}"}}')
-    disk_used_data = query_prom(f'geod_disk_used_bytes{{hostname="{hostname}"}}')
-    disk_total_data = query_prom(f'geod_disk_total_bytes{{hostname="{hostname}"}}')
+    disk_percent_data = prom_client.query_range(f'geod_disk_usage_percent{{hostname="{hostname}"}}', start, end, step)
+    disk_used_data = prom_client.query_range(f'geod_disk_used_bytes{{hostname="{hostname}"}}', start, end, step)
+    disk_total_data = prom_client.query_range(f'geod_disk_total_bytes{{hostname="{hostname}"}}', start, end, step)
     
     # Use rate() for counters to get per-second averages over the step window
     # Bytes -> Mbps: rate(bytes) * 8 / 1e6
-    net_sent_data = query_prom(f'rate(geod_network_bytes_sent_total{{hostname="{hostname}"}}[{rate_window}]) * 8 / 1000000')
-    net_recv_data = query_prom(f'rate(geod_network_bytes_recv_total{{hostname="{hostname}"}}[{rate_window}]) * 8 / 1000000')
+    net_sent_data = prom_client.query_range(f'rate(geod_network_bytes_sent_total{{hostname="{hostname}"}}[{rate_window}]) * 8 / 1000000', start, end, step)
+    net_recv_data = prom_client.query_range(f'rate(geod_network_bytes_recv_total{{hostname="{hostname}"}}[{rate_window}]) * 8 / 1000000', start, end, step)
     
     # Packets -> PPS: rate(packets)
-    pkts_sent_data = query_prom(f'rate(geod_network_packets_sent_total{{hostname="{hostname}"}}[{rate_window}])')
-    pkts_recv_data = query_prom(f'rate(geod_network_packets_recv_total{{hostname="{hostname}"}}[{rate_window}])')
+    pkts_sent_data = prom_client.query_range(f'rate(geod_network_packets_sent_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
+    pkts_recv_data = prom_client.query_range(f'rate(geod_network_packets_recv_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
     
     # For gauges like Latency, we use avg_over_time to smooth out the graph if we are zooming out
-    latency_data = query_prom(f'avg_over_time(geod_network_latency_avg_ms{{hostname="{hostname}"}}[{rate_window}])')
-    loss_data = query_prom(f'avg_over_time(geod_network_packet_loss_avg_percent{{hostname="{hostname}"}}[{rate_window}])')
+    latency_data = prom_client.query_range(f'avg_over_time(geod_network_latency_avg_ms{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
+    loss_data = prom_client.query_range(f'avg_over_time(geod_network_packet_loss_avg_percent{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
 
     # Counters (Errors/Drops) we probably still want as rates or just raw deltas? 
     # Usually seeing "Errors per second" is better.
-    err_in_data = query_prom(f'rate(geod_network_errors_in_total{{hostname="{hostname}"}}[{rate_window}])')
-    err_out_data = query_prom(f'rate(geod_network_errors_out_total{{hostname="{hostname}"}}[{rate_window}])')
-    drop_in_data = query_prom(f'rate(geod_network_drops_in_total{{hostname="{hostname}"}}[{rate_window}])')
-    drop_out_data = query_prom(f'rate(geod_network_drops_out_total{{hostname="{hostname}"}}[{rate_window}])')
+    err_in_data = prom_client.query_range(f'rate(geod_network_errors_in_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
+    err_out_data = prom_client.query_range(f'rate(geod_network_errors_out_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
+    drop_in_data = prom_client.query_range(f'rate(geod_network_drops_in_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
+    drop_out_data = prom_client.query_range(f'rate(geod_network_drops_out_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
     
-    active_conn_data = query_prom(f'geod_network_active_connections{{hostname="{hostname}"}}')
+    active_conn_data = prom_client.query_range(f'geod_network_active_connections{{hostname="{hostname}"}}', start, end, step)
     
 
     # Format for frontend
