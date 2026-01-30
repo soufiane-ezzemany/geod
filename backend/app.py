@@ -11,13 +11,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from config import settings
 from config.logging_config import setup_logging
-from infrastructure.external.prometheus_client import PrometheusClient
-from application.services.metrics_service import MetricsService
-from application.services.agent_registry import AgentRegistry
-from application.services.topology_service import TopologyService
-from application.services.history_service import HistoryService
-from application.services.command_handler import CommandHandler
-from application.services.agent_event_handler import AgentEventHandler
+from application.service_factory import ServiceFactory
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -28,14 +22,8 @@ socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS)
 # Logging setup
 logger = setup_logging()
 
-# Services
-prom_client = PrometheusClient()
-metrics_service = MetricsService()
-agent_registry = AgentRegistry()
-topology_service = TopologyService()
-history_service = HistoryService(prom_client)
-command_handler = CommandHandler(agent_registry, topology_service, metrics_service)
-agent_event_handler = AgentEventHandler(agent_registry, topology_service, metrics_service)
+# Service Factory - Dependency Injection
+container = ServiceFactory()
 
 @app.route('/')
 def hello_world():
@@ -43,22 +31,22 @@ def hello_world():
 
 @app.route('/api/topology', methods=['GET'])
 def get_topology():
-    return jsonify(topology_service.get_topology_json())
+    return jsonify(container.topology_service.get_topology_json())
 
 @app.route('/api/topology', methods=['POST'])
 def update_topology():
     data = request.json
     try:
-        topology_service.load_from_dict(data)
+        container.topology_service.load_from_dict(data)
         # Broadcast update to frontend
-        socketio.emit('topology_update', topology_service.get_topology_json())
+        socketio.emit('topology_update', container.topology_service.get_topology_json())
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
 @app.route('/api/agents', methods=['GET'])
 def get_agents():
-    return jsonify([agent.to_dict() for agent in agent_registry.get_all()])
+    return jsonify([agent.to_dict() for agent in container.agent_registry.get_all()])
 
 @app.route('/metrics')
 def metrics():
@@ -83,7 +71,7 @@ def get_history():
         return jsonify({'error': 'Missing required parameters'}), 400
 
     try:
-        history = history_service.get_agent_history(hostname, start, end, step)
+        history = container.history_service.get_agent_history(hostname, start, end, step)
         return jsonify(history)
     except Exception as e:
         logger.error(f"Error fetching history for {hostname}: {e}")
@@ -99,33 +87,33 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
-    agent = agent_event_handler.handle_disconnection(sid)
+    agent = container.agent_event_handler.handle_disconnection(sid)
 
     if agent:
         socketio.server.emit('agent_disconnected', {
             'agent_id': sid,
             'hostname': agent.hostname
         }, namespace='/')
-        socketio.server.emit('topology_update', agent_event_handler.get_topology_snapshot(), namespace='/')
+        socketio.server.emit('topology_update', container.agent_event_handler.get_topology_snapshot(), namespace='/')
 
 @socketio.on('register_agent')
 def handle_agent_registration(data):
     sid = request.sid
-    agent = agent_event_handler.handle_registration(sid, data)
+    agent = container.agent_event_handler.handle_registration(sid, data)
 
     emit('registration_confirmed', {'agent_id': sid, 'status': 'registered'})
     socketio.server.emit('agent_connected', agent.to_dict(), namespace='/')
-    socketio.server.emit('topology_update', agent_event_handler.get_topology_snapshot(), namespace='/')
+    socketio.server.emit('topology_update', container.agent_event_handler.get_topology_snapshot(), namespace='/')
 
 @socketio.on('heartbeat')
 def handle_heartbeat(data):
     sid = request.sid
-    agent_event_handler.handle_heartbeat(sid)
+    container.agent_event_handler.handle_heartbeat(sid)
 
 @socketio.on('network_stats')
 def handle_network_stats(data):
     sid = request.sid
-    enriched_stats = agent_event_handler.handle_network_stats(sid, data)
+    enriched_stats = container.agent_event_handler.handle_network_stats(sid, data)
 
     if enriched_stats:
         socketio.server.emit('network_stats_update', enriched_stats, namespace='/')
@@ -142,7 +130,7 @@ def handle_command_result(data):
     params = data.get('params', {})
 
     # Process command result through handler
-    update_info = command_handler.handle_command_result(
+    update_info = container.command_handler.handle_command_result(
         sid, command, result_data, params
     )
 
@@ -152,8 +140,8 @@ def handle_command_result(data):
 
     # Broadcast to console if not a monitoring request
     request_id = data.get('request_id', '')
-    if not command_handler.is_monitoring_request(request_id):
-        agent = agent_registry.get_by_sid(sid)
+    if not container.command_handler.is_monitoring_request(request_id):
+        agent = container.agent_registry.get_by_sid(sid)
         if agent:
             socketio.server.emit('command_result_update', {
                 'hostname': agent.hostname,
@@ -170,7 +158,7 @@ def handle_trigger_command(data):
     command = data.get('command')
     params = data.get('params', {})
 
-    target_sid = agent_registry.get_sid_by_hostname(target_hostname)
+    target_sid = container.agent_registry.get_sid_by_hostname(target_hostname)
     if target_sid:
         emit('execute_command', {
             'command': command,
@@ -190,19 +178,19 @@ def monitor_links_loop():
     """
     while True:
         socketio.sleep(settings.MONITOR_INTERVAL_SECONDS)
-        
+
         try:
             # We need a snapshot of the graph to iterate safely
-            graph_data = topology_service.get_topology_json()
+            graph_data = container.topology_service.get_topology_json()
             links = graph_data.get('links', [])
-            
+
             for link in links:
                 source = link.get('source')
                 target = link.get('target')
 
                 # Check if both are connected
-                source_sid = agent_registry.get_sid_by_hostname(source)
-                target_agent = agent_registry.get_by_hostname(target)
+                source_sid = container.agent_registry.get_sid_by_hostname(source)
+                target_agent = container.agent_registry.get_by_hostname(target)
 
                 if source_sid and target_agent:
                     target_ip = target_agent.ip_address
@@ -216,8 +204,8 @@ def monitor_links_loop():
                         }, room=source_sid)
 
                         # Stagger pings to prevent "thundering herd"
-                        socketio.sleep(settings.PING_STAGGER_DELAY_SECONDS) 
-                        
+                        socketio.sleep(settings.PING_STAGGER_DELAY_SECONDS)
+
         except Exception as e:
             logger.error(f"Error in monitor loop: {e}")
 
