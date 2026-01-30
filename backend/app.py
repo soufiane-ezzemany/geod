@@ -18,6 +18,7 @@ from infrastructure.external.prometheus_client import PrometheusClient
 from application.services.metrics_service import MetricsService
 from application.services.agent_registry import AgentRegistry
 from application.services.topology_service import TopologyService
+from application.services.history_service import HistoryService
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
@@ -33,6 +34,7 @@ prom_client = PrometheusClient()
 metrics_service = MetricsService()
 agent_registry = AgentRegistry()
 topology_service = TopologyService()
+history_service = HistoryService(prom_client)
 
 @app.route('/')
 def hello_world():
@@ -64,12 +66,12 @@ def metrics():
 @app.route('/api/history', methods=['GET'])
 def get_history():
     """
-    Proxy to Prometheus to get historical data.
+    Get historical metrics data for an agent.
     Query params:
     - hostname: required
     - start: timestamp (seconds)
     - end: timestamp (seconds)
-    - step: seconds (resolution)
+    - step: seconds (resolution, default: 15s)
     """
     hostname = request.args.get('hostname')
     start = request.args.get('start')
@@ -79,97 +81,12 @@ def get_history():
     if not all([hostname, start, end]):
         return jsonify({'error': 'Missing required parameters'}), 400
 
-    # Calculate rate window for counters
-    rate_window = prom_client.calculate_rate_window(step)
-
-    # Query all metrics
-    cpu_data = prom_client.query_range(f'geod_cpu_usage_percent{{hostname="{hostname}"}}', start, end, step)
-    
-    mem_percent_data = prom_client.query_range(f'geod_memory_usage_percent{{hostname="{hostname}"}}', start, end, step)
-    mem_used_data = prom_client.query_range(f'geod_memory_used_bytes{{hostname="{hostname}"}}', start, end, step)
-    mem_total_data = prom_client.query_range(f'geod_memory_total_bytes{{hostname="{hostname}"}}', start, end, step)
-    
-    disk_percent_data = prom_client.query_range(f'geod_disk_usage_percent{{hostname="{hostname}"}}', start, end, step)
-    disk_used_data = prom_client.query_range(f'geod_disk_used_bytes{{hostname="{hostname}"}}', start, end, step)
-    disk_total_data = prom_client.query_range(f'geod_disk_total_bytes{{hostname="{hostname}"}}', start, end, step)
-    
-    # Use rate() for counters to get per-second averages over the step window
-    # Bytes -> Mbps: rate(bytes) * 8 / 1e6
-    net_sent_data = prom_client.query_range(f'rate(geod_network_bytes_sent_total{{hostname="{hostname}"}}[{rate_window}]) * 8 / 1000000', start, end, step)
-    net_recv_data = prom_client.query_range(f'rate(geod_network_bytes_recv_total{{hostname="{hostname}"}}[{rate_window}]) * 8 / 1000000', start, end, step)
-    
-    # Packets -> PPS: rate(packets)
-    pkts_sent_data = prom_client.query_range(f'rate(geod_network_packets_sent_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    pkts_recv_data = prom_client.query_range(f'rate(geod_network_packets_recv_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    
-    # For gauges like Latency, we use avg_over_time to smooth out the graph if we are zooming out
-    latency_data = prom_client.query_range(f'avg_over_time(geod_network_latency_avg_ms{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    loss_data = prom_client.query_range(f'avg_over_time(geod_network_packet_loss_avg_percent{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-
-    # Counters (Errors/Drops) we probably still want as rates or just raw deltas? 
-    # Usually seeing "Errors per second" is better.
-    err_in_data = prom_client.query_range(f'rate(geod_network_errors_in_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    err_out_data = prom_client.query_range(f'rate(geod_network_errors_out_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    drop_in_data = prom_client.query_range(f'rate(geod_network_drops_in_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    drop_out_data = prom_client.query_range(f'rate(geod_network_drops_out_total{{hostname="{hostname}"}}[{rate_window}])', start, end, step)
-    
-    active_conn_data = prom_client.query_range(f'geod_network_active_connections{{hostname="{hostname}"}}', start, end, step)
-    
-
-    # Format for frontend
-    # We want a unified list of points ordered by time
-    # This is a bit tricky because timestamps might slightly differ.
-    # However, if 'step' is aligned, they should be close.
-    
-    # Let's organize by timestamp
-    history = {} # timestamp -> object
-    
-    def process_series(series_data, category, subkey, cast=float):
-        if not series_data: return
-        values = series_data[0].get('values', [])
-        for t, v in values:
-            t = int(t)
-            if t not in history:
-                history[t] = {'timestamp': datetime.fromtimestamp(t).isoformat(), 'system': {'memory': {}, 'disk': {}}, 'network': {}}
-            
-            target = history[t]
-            if category == 'system':
-                if subkey == 'cpu_percent': target['system']['cpu_percent'] = cast(v)
-                elif subkey.startswith('memory.'): 
-                    target['system']['memory'][subkey.split('.')[1]] = cast(v)
-                elif subkey.startswith('disk.'):
-                    target['system']['disk'][subkey.split('.')[1]] = cast(v)
-            elif category == 'network':
-                target['network'][subkey] = cast(v)
-
-    process_series(cpu_data, 'system', 'cpu_percent')
-    
-    process_series(mem_percent_data, 'system', 'memory.percent')
-    process_series(mem_used_data, 'system', 'memory.used')
-    process_series(mem_total_data, 'system', 'memory.total')
-    
-    process_series(disk_percent_data, 'system', 'disk.percent')
-    process_series(disk_used_data, 'system', 'disk.used')
-    process_series(disk_total_data, 'system', 'disk.total')
-    
-    # These are now RATES (Mbps, PPS) or Averages, not cumulative totals
-    process_series(net_sent_data, 'network', 'throughput_sent_mbps')
-    process_series(net_recv_data, 'network', 'throughput_recv_mbps')
-    process_series(pkts_sent_data, 'network', 'pps_sent')
-    process_series(pkts_recv_data, 'network', 'pps_recv')
-    
-    process_series(err_in_data, 'network', 'errors_in_rate')
-    process_series(err_out_data, 'network', 'errors_out_rate')
-    process_series(drop_in_data, 'network', 'drop_in_rate')
-    process_series(drop_out_data, 'network', 'drop_out_rate')
-    process_series(active_conn_data, 'network', 'active_connections', cast=int)
-    
-    process_series(latency_data, 'network', 'latency_avg')
-    process_series(loss_data, 'network', 'packet_loss_avg')
-    
-    sorted_history = sorted(history.values(), key=lambda x: x['timestamp'])
-    
-    return jsonify(sorted_history)
+    try:
+        history = history_service.get_agent_history(hostname, start, end, step)
+        return jsonify(history)
+    except Exception as e:
+        logger.error(f"Error fetching history for {hostname}: {e}")
+        return jsonify({'error': 'Failed to fetch history'}), 500
 
 # --- SocketIO Handlers ---
 
