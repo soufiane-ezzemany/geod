@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChaosRule } from '../types/network';
+import type { ChaosRule } from '@/types/network';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
