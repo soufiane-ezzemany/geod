@@ -183,8 +183,11 @@ def handle_trigger_command(data):
     command = data.get('command')
     params = data.get('params', {})
 
+    logger.info(f"Received trigger_command: {command} for {target_hostname} with params: {params}")
+
     target_sid = container.agent_registry.get_sid_by_hostname(target_hostname)
     if target_sid:
+        logger.info(f"Forwarding {command} to agent {target_hostname} (sid: {target_sid})")
         emit('execute_command', {
             'command': command,
             'params': params,
@@ -192,6 +195,7 @@ def handle_trigger_command(data):
         }, room=target_sid)
         return {'status': 'sent'}
     else:
+        logger.warning(f"Agent not found: {target_hostname}")
         return {'status': 'error', 'message': 'Agent not found'}
 
 def monitor_links_loop():

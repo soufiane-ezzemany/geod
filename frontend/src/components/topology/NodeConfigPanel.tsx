@@ -17,10 +17,12 @@ import {
     Network,
     Terminal,
     Trash2,
-    Wifi
+    Wifi,
+    Zap
 } from "lucide-react";
 import { useState } from "react";
-import type { AgentStats, CommandParams } from "@/types/network";
+import type { AgentStats, CommandParams, ChaosRule } from "@/types/network";
+import { ChaosRuleEditor } from "@/components/ChaosRuleEditor";
 
 interface NodeConfigPanelProps {
   isOpen: boolean;
@@ -89,10 +91,11 @@ export function NodeConfigPanel({
         </div>
 
         <Tabs defaultValue="traffic" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="traffic">Traffic Control</TabsTrigger>
             <TabsTrigger value="tools">Diagnostics</TabsTrigger>
             <TabsTrigger value="stats">System Stats</TabsTrigger>
+            <TabsTrigger value="chaos">Advanced Chaos</TabsTrigger>
           </TabsList>
 
           {/* --- Traffic Control Tab --- */}
@@ -254,6 +257,16 @@ export function NodeConfigPanel({
                     Refresh Stats
                 </Button>
              </div>
+          </TabsContent>
+
+          {/* --- Advanced Chaos Tab --- */}
+          <TabsContent value="chaos" className="space-y-4">
+            <ChaosRuleEditor
+              nodeId={nodeId}
+              onApplyRules={(rules: ChaosRule[]) => {
+                onCommand("advanced_traffic_control", { rules });
+              }}
+            />
           </TabsContent>
         </Tabs>
       </SheetContent>

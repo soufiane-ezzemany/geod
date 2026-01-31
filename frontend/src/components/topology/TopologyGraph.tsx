@@ -172,6 +172,14 @@ const TopologyGraph = () => {
             }
         });
         toast.success(`Traffic control reset (Node: ${nodeId})`);
+
+      } else if (action === "advanced_traffic_control") {
+        socket.emit("trigger_command", {
+            target_hostname: nodeId,
+            command: "advanced_traffic_control",
+            params: params,
+        });
+        toast.success(`Advanced chaos rules applied to ${nodeId}`);
       }
     },
     [socket]
