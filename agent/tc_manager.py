@@ -68,17 +68,26 @@ class TCManager:
         subprocess.run(netem_cmd, check=True)
 
         target = rule.get('target', {})
-        self._add_iptables_mark(interface, target, fwmark)
+
+        if target and any(target.values()):
+            self._add_iptables_mark(interface, target, fwmark)
+            filter_type = 'fw'
+        else:
+            filter_type = 'u32_all'
 
         subprocess.run([
             'tc', 'filter', 'add', 'dev', interface,
             'parent', '1:', 'protocol', 'ip',
-            'prio', '1', 'handle', str(fwmark), 'fw',
-            'flowid', classid
-        ], check=True)
+            'prio', '1' if filter_type == 'fw' else '2',
+        ] + (
+            ['handle', str(fwmark), 'fw', 'flowid', classid]
+            if filter_type == 'fw' else
+            ['u32', 'match', 'u32', '0', '0', 'flowid', classid]
+        ), check=True)
 
         self.active_marks.append(fwmark)
-        self.logger.info(f"Rule added: class {classid}, fwmark {fwmark}, target={target}, effects={effects}")
+        rule_type = "granular" if filter_type == 'fw' else "global"
+        self.logger.info(f"Rule added ({rule_type}): class {classid}, fwmark {fwmark}, target={target}, effects={effects}")
 
     def _add_iptables_mark(self, interface: str, target: Dict[str, Any], fwmark: int) -> None:
         """Add iptables rule in mangle table to mark packets."""
@@ -121,14 +130,14 @@ class TCManager:
 
     def validate_rule(self, rule: Dict[str, Any]) -> bool:
         """Validate that a rule has required fields."""
-        if 'target' not in rule:
-            return False
-
         if 'effects' not in rule:
             return False
 
         effects = rule['effects']
         if not any(k in effects for k in ['latency', 'loss', 'limit']):
+            return False
+
+        if 'target' in rule and not isinstance(rule['target'], dict):
             return False
 
         return True

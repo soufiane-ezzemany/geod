@@ -264,14 +264,7 @@ class NetworkAgent:
             
             elif command == 'list_connections':
                 result['data'] = self._list_connections()
-            
-            elif command == 'bandwidth_limit':
-                interface = params.get('interface')
-                limit = params.get('limit')
-                latency = params.get('latency')
-                loss = params.get('loss')
-                result['data'] = self._set_traffic_control(interface, limit, latency, loss)
-            
+
             elif command == 'start_iperf_server':
                 result['data'] = self._start_iperf_server(params)
 
@@ -281,8 +274,8 @@ class NetworkAgent:
             elif command == 'stop_iperf':
                 result['data'] = self._stop_iperf()
 
-            elif command == 'advanced_traffic_control':
-                result['data'] = self._set_advanced_traffic_control(params)
+            elif command == 'chaos_control':
+                result['data'] = self._chaos_control(params)
 
             else:
                 result['status'] = 'error'
@@ -334,65 +327,7 @@ class NetworkAgent:
         except Exception as e:
             return {'error': str(e)}
     
-    def _set_traffic_control(self, interface: Optional[str] = None, limit: Optional[str] = None, latency: Optional[str] = None, loss: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Set traffic control rules (bandwidth, latency, loss) on interface.
-        Uses 'tc' with 'netem'.
-        """
-        if not interface:
-            interface = self._get_default_interface()
-
-        logger.warning(f"Setting traffic control on {interface}: limit={limit}, latency={latency}, loss={loss}")
-        
-        if platform.system() != 'Linux':
-             return {'error': 'Traffic control only supported on Linux'}
-
-        results = {}
-        
-        # 1. Clear existing rules (ignore error if none exist)
-        try:
-            subprocess.call(['tc', 'qdisc', 'del', 'dev', interface, 'root'], stderr=subprocess.DEVNULL)
-            results['clear'] = 'cleared'
-        except Exception:
-            pass
-
-        # If we are just clearing (all None), we are done
-        if not limit and not latency and not loss:
-            return {'status': 'cleared', 'interface': interface}
-
-        # 2. Build new command
-        # using netem for everything as it supports delay, loss, and rate (limited)
-        # Note: rate in netem might be limited, but sufficient for emulation.
-        # Syntax: tc qdisc add dev eth0 root netem delay 100ms loss 10% rate 1mbit
-        
-        cmd = ['tc', 'qdisc', 'add', 'dev', interface, 'root', 'netem']
-        
-        if latency:
-            # Ensure format is like "100ms"
-            if str(latency).isdigit(): latency = f"{latency}ms"
-            cmd.extend(['delay', str(latency)])
-        
-        if loss:
-             # Ensure format like "1%"
-            if str(loss).isdigit(): loss = f"{loss}%"
-            cmd.extend(['loss', str(loss)])
-            
-        if limit:
-             # Ensure format like "1mbit"
-            if str(limit).isdigit(): limit = f"{limit}mbit"
-            cmd.extend(['rate', str(limit)])
-            
-        try:
-            logger.info(f"Executing TC command: {' '.join(cmd)}")
-            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
-            results['apply'] = 'success'
-            results['output'] = output
-            results['params'] = {'limit': limit, 'latency': latency, 'loss': loss}
-            return results
-        except subprocess.CalledProcessError as e:
-            return {'error': str(e), 'output': e.output, 'command': ' '.join(cmd)}
-
-    def _set_advanced_traffic_control(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _chaos_control(self, params: Dict[str, Any]) -> Dict[str, Any]:
         if platform.system() != 'Linux':
             return {'error': 'Traffic control only supported on Linux'}
 
@@ -400,7 +335,7 @@ class NetworkAgent:
         rules = params.get('rules', [])
         mode = params.get('mode', 'replace')
 
-        logger.info(f"Setting advanced traffic control on {interface}: {len(rules)} rules, mode={mode}")
+        logger.info(f"Applying chaos control on {interface}: {len(rules)} rules, mode={mode}")
 
         tc_manager = TCManager()
 

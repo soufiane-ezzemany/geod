@@ -75,7 +75,7 @@ def set_chaos_rules(hostname):
         return jsonify({'error': 'Agent not found'}), 404
 
     socketio.emit('execute_command', {
-        'command': 'advanced_traffic_control',
+        'command': 'chaos_control',
         'params': {
             'rules': rules,
             'interface': interface,
@@ -97,7 +97,7 @@ def clear_chaos_rules(hostname):
         return jsonify({'error': 'Agent not found'}), 404
 
     socketio.emit('execute_command', {
-        'command': 'advanced_traffic_control',
+        'command': 'chaos_control',
         'params': {'rules': []},
         'request_id': f"chaos_clear_{int(time.time())}"
     }, room=target_sid)
