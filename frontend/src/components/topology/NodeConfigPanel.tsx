@@ -6,23 +6,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Activity,
-    ArrowRightLeft,
-    Gauge,
     Laptop2,
     Network,
     Terminal,
-    Trash2,
-    Wifi,
-    Zap
+    Wifi
 } from "lucide-react";
-import { useState } from "react";
 import type { AgentStats, CommandParams, ChaosRule } from "@/types/network";
-import { ChaosRuleEditor } from "@/components/ChaosRuleEditor";
+import { ChaosEngineering } from "@/components/ChaosEngineering";
 
 interface NodeConfigPanelProps {
   isOpen: boolean;
@@ -43,25 +36,7 @@ export function NodeConfigPanel({
   nodeData,
   onCommand,
 }: NodeConfigPanelProps) {
-  // Traffic Control State
-  const [bandwidth, setBandwidth] = useState("");
-  const [latency, setLatency] = useState("");
-  const [loss, setLoss] = useState("");
-
   if (!nodeId) return null;
-
-  const handleApplyTraffic = () => {
-    if (bandwidth) onCommand("bandwidth", { limit: bandwidth });
-    if (latency) onCommand("latency", { delay: latency });
-    if (loss) onCommand("loss", { loss: loss });
-  };
-
-  const handleResetTraffic = () => {
-    onCommand("reset_traffic");
-    setBandwidth("");
-    setLatency("");
-    setLoss("");
-  };
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -90,73 +65,21 @@ export function NodeConfigPanel({
              <div>{nodeData?.os}</div>
         </div>
 
-        <Tabs defaultValue="traffic" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
-            <TabsTrigger value="traffic">Traffic Control</TabsTrigger>
+        <Tabs defaultValue="chaos" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="chaos">Chaos Engineering</TabsTrigger>
             <TabsTrigger value="tools">Diagnostics</TabsTrigger>
             <TabsTrigger value="stats">System Stats</TabsTrigger>
-            <TabsTrigger value="chaos">Advanced Chaos</TabsTrigger>
           </TabsList>
 
-          {/* --- Traffic Control Tab --- */}
-          <TabsContent value="traffic" className="space-y-6">
-            <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium flex items-center gap-2">
-                        <Gauge className="w-4 h-4 text-blue-500" />
-                        Interface Constraints (eth0)
-                    </h3>
-                    <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                        onClick={handleResetTraffic}
-                    >
-                        <Trash2 className="w-3 h-3 mr-1" />
-                        Reset All
-                    </Button>
-                </div>
-                
-                <div className="grid gap-4 p-4 border rounded-lg bg-card shadow-sm">
-                    <div className="grid gap-2">
-                        <Label htmlFor="bandwidth">Bandwidth Limit</Label>
-                        <Input 
-                            id="bandwidth" 
-                            placeholder="e.g. 10mbit, 500kbit" 
-                            value={bandwidth}
-                            onChange={(e) => setBandwidth(e.target.value)}
-                        />
-                        <p className="text-[10px] text-muted-foreground">Limits outgoing capacity.</p>
-                    </div>
-                    
-                    <div className="grid gap-2">
-                        <Label htmlFor="latency">Added Latency</Label>
-                        <Input 
-                            id="latency" 
-                            placeholder="e.g. 50ms, 100ms" 
-                            value={latency}
-                            onChange={(e) => setLatency(e.target.value)}
-                        />
-                        <p className="text-[10px] text-muted-foreground">Adds artificial delay to packets.</p>
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="loss">Packet Loss</Label>
-                        <Input 
-                            id="loss" 
-                            placeholder="e.g. 1%, 5%" 
-                            value={loss}
-                            onChange={(e) => setLoss(e.target.value)}
-                        />
-                        <p className="text-[10px] text-muted-foreground">Randomly drops percentage of packets.</p>
-                    </div>
-
-                    <Button className="mt-2" onClick={handleApplyTraffic}>
-                        <ArrowRightLeft className="w-4 h-4 mr-2" />
-                        Apply Rules
-                    </Button>
-                </div>
-            </div>
+          {/* --- Chaos Engineering Tab --- */}
+          <TabsContent value="chaos" className="space-y-4">
+            <ChaosEngineering
+              nodeId={nodeId}
+              onApplyRules={(rules: ChaosRule[]) => {
+                onCommand("chaos_control", { rules });
+              }}
+            />
           </TabsContent>
 
           {/* --- Tools Tab --- */}
@@ -259,15 +182,6 @@ export function NodeConfigPanel({
              </div>
           </TabsContent>
 
-          {/* --- Advanced Chaos Tab --- */}
-          <TabsContent value="chaos" className="space-y-4">
-            <ChaosRuleEditor
-              nodeId={nodeId}
-              onApplyRules={(rules: ChaosRule[]) => {
-                onCommand("advanced_traffic_control", { rules });
-              }}
-            />
-          </TabsContent>
         </Tabs>
       </SheetContent>
     </Sheet>

@@ -14,12 +14,11 @@ import { toast } from "sonner";
 import CustomEdge from "./CustomEdge";
 import AgentNode from "./nodes/AgentNode";
 import { NodeConfigPanel } from "./NodeConfigPanel";
-import type { 
-  TopologyData, 
-  NetworkStatsUpdate, 
+import type {
+  TopologyData,
+  NetworkStatsUpdate,
   LinkStatsUpdate,
   CommandParams,
-  BandwidthParams,
   IperfClientParams,
   TopologyLink,
 } from "@/types/network";
@@ -123,63 +122,14 @@ const TopologyGraph = () => {
         });
         toast.success(`Serveur Iperf arrêté sur ${nodeId}`);
       
-      // --- Traffic Control Actions (Moved from Edge) ---
-      } else if (action === "bandwidth") {
-        const bwParams = params as BandwidthParams;
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "bandwidth_limit",
-          params: {
-            limit: bwParams?.limit,
-          },
-        });
-        toast.success(`Bandwidth limit: ${bwParams?.limit} (Node: ${nodeId})`);
-        
-      } else if (action === "latency") {
-        const latParams = params as BandwidthParams;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const delayVal = (params as any)?.delay || latParams?.latency;
-
+      // --- Chaos Control ---
+      } else if (action === "chaos_control") {
         socket.emit("trigger_command", {
             target_hostname: nodeId,
-            command: "bandwidth_limit",
-            params: {
-                latency: delayVal
-            }
-        });
-        toast.success(`Latency: ${delayVal} (Node: ${nodeId})`);
-
-      } else if (action === "loss") {
-        const lossParams = params as BandwidthParams;
-        socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "bandwidth_limit",
-            params: {
-                loss: lossParams?.loss
-            }
-        });
-        toast.success(`Packet Loss: ${lossParams?.loss} (Node: ${nodeId})`);
-
-      } else if (action === "reset_traffic") {
-        socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "bandwidth_limit",
-            params: {
-                // Sending explicit nulls or just empty to trigger clear
-                limit: null,
-                latency: null,
-                loss: null
-            }
-        });
-        toast.success(`Traffic control reset (Node: ${nodeId})`);
-
-      } else if (action === "advanced_traffic_control") {
-        socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "advanced_traffic_control",
+            command: "chaos_control",
             params: params,
         });
-        toast.success(`Advanced chaos rules applied to ${nodeId}`);
+        toast.success(`Chaos rules applied to ${nodeId}`);
       }
     },
     [socket]
