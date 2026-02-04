@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiService } from "@/services/api.service";
+import { apiLogger } from "@/lib/logger";
 import type { Metrics } from "@/hooks/useMetrics";
 
 interface TimeRangeConfig {
@@ -75,14 +76,14 @@ export function useMetricsHistory(timeRange: string) {
             })) as Metrics[];
             newHistory[hostname] = enrichedData;
           } catch (err) {
-            console.error(`Failed to fetch history for ${hostname}`, err);
+            apiLogger.error(`Failed to fetch history for ${hostname}`, err);
           }
         }
 
         setHistoryData(newHistory);
       } catch (err) {
         setError(err instanceof Error ? err : new Error("Failed to fetch history"));
-        console.error("Failed to fetch history", err);
+        apiLogger.error("Failed to fetch history", err);
       } finally {
         setLoading(false);
       }

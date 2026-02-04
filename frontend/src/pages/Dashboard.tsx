@@ -2,6 +2,7 @@ import { StatsCard } from "@/components/stats/StatsCard";
 import TopologyGraph from "@/components/topology/TopologyGraph";
 import { useSocket } from "@/context/socket-context";
 import { apiService } from "@/services/api.service";
+import { apiLogger } from "@/lib/logger";
 import type { TopologyData, TopologyLink, TopologyNode } from "@/types/network";
 import { Activity, AlertCircle, Layers, Network } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -51,7 +52,7 @@ export default function Dashboard() {
           calculateStats(data.nodes, data.links);
         }
       })
-      .catch((err) => console.error("Failed to fetch topology:", err));
+      .catch((err) => apiLogger.error("Failed to fetch topology:", err));
 
     if (!socket) return;
 

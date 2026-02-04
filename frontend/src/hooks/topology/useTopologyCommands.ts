@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useSocket } from "@/context/socket-context";
 import { toast } from "sonner";
+import { logger } from "@/lib/logger";
 import type {
   BandwidthParams,
   CommandParams,
@@ -32,7 +33,7 @@ export function useTopologyCommands() {
 
   const handleNodeAction = useCallback(
     (action: string, nodeId: string, params?: CommandParams) => {
-      console.log(`Node Action: ${action} on ${nodeId}`, params);
+      logger.debug(`Node Action: ${action} on ${nodeId}`, params);
 
       if (action === "details") {
         toast.info(`Agent: ${nodeId}`);
@@ -41,7 +42,7 @@ export function useTopologyCommands() {
 
       if (!socket || !socket.connected) {
         toast.error("WebSocket not connected — unable to send command.");
-        console.warn("Attempted command without socket connected:", action, nodeId, params);
+        logger.warn("Attempted command without socket connected:", action, nodeId, params);
         return;
       }
 
@@ -120,7 +121,7 @@ export function useTopologyCommands() {
       target: string,
       params?: CommandParams
     ) => {
-      console.log(`Edge Action: ${action} on ${source}->${target}`, params);
+      logger.debug(`Edge Action: ${action} on ${source}->${target}`, params);
 
       if (action === "iperf") {
         if (!socket) {
