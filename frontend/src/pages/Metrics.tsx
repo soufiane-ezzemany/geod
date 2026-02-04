@@ -1,8 +1,16 @@
 import { StatsCard } from "@/components/stats/StatsCard";
-import { BACKEND_URL } from "@/config";
-import { useMetrics, type Metrics as Metric } from "@/hooks/useMetrics";
-import { Activity, AlertCircle, Clock, HardDrive, Network, Server, Wifi } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useMetrics } from "@/hooks/useMetrics";
+import { useMetricsHistory } from "@/hooks/useMetricsHistory";
+import {
+  Activity,
+  AlertCircle,
+  Clock,
+  HardDrive,
+  Network,
+  Server,
+  Wifi,
+} from "lucide-react";
+import { useState } from "react";
 import {
   Area,
   AreaChart,
@@ -19,70 +27,11 @@ import {
 export default function Metrics() {
   const { metrics } = useMetrics();
   const [timeRange, setTimeRange] = useState("live");
-  const [historyData, setHistoryData] = useState<Record<string, Metric[]>>({});
-  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const { historyData, loading: loadingHistory } = useMetricsHistory(timeRange);
 
   // Use metrics directly (it is already grouped by agent)
   const metricsByAgent = metrics;
-
-  // Fetch history when range changes
-  useEffect(() => {
-    if (timeRange === "live") return;
-
-    const fetchHistory = async () => {
-      setLoadingHistory(true);
-      // Determine start/end/step
-      const end = Math.floor(Date.now() / 1000);
-      let start = end;
-      let step = "15s";
-
-      if (timeRange === "15m") start = end - 15 * 60;
-      if (timeRange === "1h") start = end - 60 * 60;
-      if (timeRange === "6h") {
-        start = end - 6 * 60 * 60;
-        step = "1m";
-      }
-      if (timeRange === "24h") {
-        start = end - 24 * 60 * 60;
-        step = "5m";
-      }
-      if (timeRange === "7d") {
-        start = end - 7 * 24 * 60 * 60;
-        step = "30m";
-      }
-
-      try {
-        // Get list of known agents
-        const agentsRes = await fetch(`${BACKEND_URL}/api/agents`);
-        const agents = await agentsRes.json();
-
-        const newHistory: Record<string, Metric[]> = {};
-
-        // Define strict type for history response item
-        type HistoryItem = Omit<Metric, "agent_id">;
-
-        for (const agent of agents) {
-          const hostname = agent.hostname;
-          const res = await fetch(
-            `${BACKEND_URL}/api/history?hostname=${hostname}&start=${start}&end=${end}&step=${step}`,
-          );
-          if (res.ok) {
-            const data = (await res.json()) as HistoryItem[];
-            // Inject agent_id and ensure structure
-            const enrichedData: Metric[] = data.map((m) => ({ ...m, agent_id: hostname }));
-            newHistory[hostname] = enrichedData;
-          }
-        }
-        setHistoryData(newHistory);
-      } catch (e) {
-        console.error("Failed to fetch history", e);
-      } finally {
-        setLoadingHistory(false);
-      }
-    };
-
-    fetchHistory();
-  }, [timeRange]);
 
   const activeData = timeRange === "live" ? metricsByAgent : historyData;
 
@@ -90,7 +39,9 @@ export default function Metrics() {
     <div className="space-y-8 p-6 h-full flex flex-col overflow-y-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">System & Network Metrics</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            System & Network Metrics
+          </h1>
           <p className="text-muted-foreground">
             {timeRange === "live"
               ? "Real-time performance monitoring."
@@ -116,7 +67,9 @@ export default function Metrics() {
       </div>
 
       {loadingHistory && (
-        <div className="p-8 text-center text-muted-foreground">Loading historical data...</div>
+        <div className="p-8 text-center text-muted-foreground">
+          Loading historical data...
+        </div>
       )}
 
       {!loadingHistory && Object.keys(activeData).length > 0 ? (
@@ -127,56 +80,78 @@ export default function Metrics() {
           const sortedMetrics = [...agentMetrics];
           if (sortedMetrics[0] && sortedMetrics[0].timestamp) {
             sortedMetrics.sort(
-              (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+              (a, b) =>
+                new Date(a.timestamp).getTime() -
+                new Date(b.timestamp).getTime(),
             );
           }
 
           const latest = sortedMetrics[sortedMetrics.length - 1]; // Last item is latest after sort
 
           // Calculate Rates for Charts (Delta / Time) or use pre-calculated
-          const chartData = sortedMetrics.map((m, i, arr) => {
-             // If backend provided pre-calculated rates (History Mode), use them
-             if (m.network?.throughput_sent_mbps !== undefined) {
-                 return {
-                    name: new Date(m.timestamp).toLocaleTimeString(),
-                    cpu: m.system?.cpu_percent || 0,
-                    mem: m.system?.memory?.percent || 0,
-                    disk: m.system?.disk?.percent || 0,
-                    throughputSentMbps: parseFloat((m.network.throughput_sent_mbps || 0).toFixed(2)),
-                    throughputRecvMbps: parseFloat((m.network.throughput_recv_mbps || 0).toFixed(2)),
-                    ppsSent: Math.round(m.network.pps_sent || 0),
-                    ppsRecv: Math.round(m.network.pps_recv || 0),
-                 };
-             }
+          const chartData = sortedMetrics
+            .map((m, i, arr) => {
+              // If backend provided pre-calculated rates (History Mode), use them
+              if (m.network?.throughput_sent_mbps !== undefined) {
+                return {
+                  name: new Date(m.timestamp).toLocaleTimeString(),
+                  cpu: m.system?.cpu_percent || 0,
+                  mem: m.system?.memory?.percent || 0,
+                  disk: m.system?.disk?.percent || 0,
+                  throughputSentMbps: parseFloat(
+                    (m.network.throughput_sent_mbps || 0).toFixed(2),
+                  ),
+                  throughputRecvMbps: parseFloat(
+                    (m.network.throughput_recv_mbps || 0).toFixed(2),
+                  ),
+                  ppsSent: Math.round(m.network.pps_sent || 0),
+                  ppsRecv: Math.round(m.network.pps_recv || 0),
+                };
+              }
 
-             // Fallback: Calculate from diff (Live Mode)
-             let throughputSentMbps = 0;
-             let throughputRecvMbps = 0;
-             let ppsSent = 0;
-             let ppsRecv = 0;
+              // Fallback: Calculate from diff (Live Mode)
+              let throughputSentMbps = 0;
+              let throughputRecvMbps = 0;
+              let ppsSent = 0;
+              let ppsRecv = 0;
 
-             if (i > 0) {
-                 const prev = arr[i - 1];
-                 const timeDiff = (new Date(m.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
-                 
-                 if (timeDiff > 0) {
-                     // Bytes -> Bits -> Megabits / Seconds
-                     const deltaBytesSent = (m.network?.bytes_sent || 0) - (prev.network?.bytes_sent || 0);
-                     const deltaBytesRecv = (m.network?.bytes_recv || 0) - (prev.network?.bytes_recv || 0);
-                     
-                     // Handle counter resets (restarts)
-                     if (deltaBytesSent >= 0) throughputSentMbps = (deltaBytesSent * 8) / (1024 * 1024) / timeDiff;
-                     if (deltaBytesRecv >= 0) throughputRecvMbps = (deltaBytesRecv * 8) / (1024 * 1024) / timeDiff;
+              if (i > 0) {
+                const prev = arr[i - 1];
+                const timeDiff =
+                  (new Date(m.timestamp).getTime() -
+                    new Date(prev.timestamp).getTime()) /
+                  1000;
 
-                     const deltaPktsSent = (m.network?.packets_sent || 0) - (prev.network?.packets_sent || 0);
-                     const deltaPktsRecv = (m.network?.packets_recv || 0) - (prev.network?.packets_recv || 0);
+                if (timeDiff > 0) {
+                  // Bytes -> Bits -> Megabits / Seconds
+                  const deltaBytesSent =
+                    (m.network?.bytes_sent || 0) -
+                    (prev.network?.bytes_sent || 0);
+                  const deltaBytesRecv =
+                    (m.network?.bytes_recv || 0) -
+                    (prev.network?.bytes_recv || 0);
 
-                     if (deltaPktsSent >= 0) ppsSent = deltaPktsSent / timeDiff;
-                     if (deltaPktsRecv >= 0) ppsRecv = deltaPktsRecv / timeDiff;
-                 }
-             }
+                  // Handle counter resets (restarts)
+                  if (deltaBytesSent >= 0)
+                    throughputSentMbps =
+                      (deltaBytesSent * 8) / (1024 * 1024) / timeDiff;
+                  if (deltaBytesRecv >= 0)
+                    throughputRecvMbps =
+                      (deltaBytesRecv * 8) / (1024 * 1024) / timeDiff;
 
-             return {
+                  const deltaPktsSent =
+                    (m.network?.packets_sent || 0) -
+                    (prev.network?.packets_sent || 0);
+                  const deltaPktsRecv =
+                    (m.network?.packets_recv || 0) -
+                    (prev.network?.packets_recv || 0);
+
+                  if (deltaPktsSent >= 0) ppsSent = deltaPktsSent / timeDiff;
+                  if (deltaPktsRecv >= 0) ppsRecv = deltaPktsRecv / timeDiff;
+                }
+              }
+
+              return {
                 name: new Date(m.timestamp).toLocaleTimeString(),
                 cpu: m.system?.cpu_percent || 0,
                 mem: m.system?.memory?.percent || 0,
@@ -186,8 +161,9 @@ export default function Metrics() {
                 throughputRecvMbps: parseFloat(throughputRecvMbps.toFixed(2)),
                 ppsSent: Math.round(ppsSent),
                 ppsRecv: Math.round(ppsRecv),
-             };
-          }).slice(1); // Remove first element as it has no rate (0)
+              };
+            })
+            .slice(1); // Remove first element as it has no rate (0)
 
           // Safe access for display values
           const diskUsedGB = latest.system?.disk?.used
@@ -201,7 +177,10 @@ export default function Metrics() {
             : "-";
 
           return (
-            <div key={agentId} className="space-y-6 border rounded-xl p-6 bg-card shadow-sm">
+            <div
+              key={agentId}
+              className="space-y-6 border rounded-xl p-6 bg-card shadow-sm"
+            >
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-semibold flex items-center gap-2">
                   <Server className="w-6 h-6 text-primary" />
@@ -251,10 +230,15 @@ export default function Metrics() {
                   {/* Right: Graph */}
                   <div className="lg:col-span-2 h-full min-h-[300px]">
                     <div className="bg-background/50 rounded-lg p-4 border h-full">
-                      <h4 className="mb-4 text-sm font-semibold">Resource History</h4>
+                      <h4 className="mb-4 text-sm font-semibold">
+                        Resource History
+                      </h4>
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            vertical={false}
+                          />
                           <XAxis dataKey="name" hide />
                           <YAxis domain={[0, 100]} />
                           <Tooltip
@@ -307,11 +291,22 @@ export default function Metrics() {
                       <Network className="w-4 h-4" /> Traffic Volume
                     </div>
                     <div className="text-2xl font-bold text-slate-800">
-                      {((latest.network?.bytes_sent || 0) / 1024 / 1024).toFixed(1)}{" "}
-                      <span className="text-sm font-normal text-slate-500">MB Sent</span>
+                      {(
+                        (latest.network?.bytes_sent || 0) /
+                        1024 /
+                        1024
+                      ).toFixed(1)}{" "}
+                      <span className="text-sm font-normal text-slate-500">
+                        MB Sent
+                      </span>
                     </div>
                     <div className="text-sm text-slate-500">
-                      {((latest.network?.bytes_recv || 0) / 1024 / 1024).toFixed(1)} MB Recv
+                      {(
+                        (latest.network?.bytes_recv || 0) /
+                        1024 /
+                        1024
+                      ).toFixed(1)}{" "}
+                      MB Recv
                     </div>
                   </div>
 
@@ -321,7 +316,9 @@ export default function Metrics() {
                     </div>
                     <div className="text-2xl font-bold text-slate-800">
                       {(latest.network?.packets_sent || 0).toLocaleString()}{" "}
-                      <span className="text-sm font-normal text-slate-500">Tx</span>
+                      <span className="text-sm font-normal text-slate-500">
+                        Tx
+                      </span>
                     </div>
                     <div className="text-sm text-slate-500">
                       {(latest.network?.packets_recv || 0).toLocaleString()} Rx
@@ -333,11 +330,16 @@ export default function Metrics() {
                       <AlertCircle className="w-4 h-4" /> Errors & Drops
                     </div>
                     <div className="text-2xl font-bold text-slate-800">
-                      {(latest.network?.errors_in || 0) + (latest.network?.errors_out || 0)}{" "}
-                      <span className="text-sm font-normal text-slate-500">Errors</span>
+                      {(latest.network?.errors_in || 0) +
+                        (latest.network?.errors_out || 0)}{" "}
+                      <span className="text-sm font-normal text-slate-500">
+                        Errors
+                      </span>
                     </div>
                     <div className="text-sm text-slate-500">
-                      {(latest.network?.drop_in || 0) + (latest.network?.drop_out || 0)} Drops
+                      {(latest.network?.drop_in || 0) +
+                        (latest.network?.drop_out || 0)}{" "}
+                      Drops
                     </div>
                   </div>
 
@@ -349,7 +351,9 @@ export default function Metrics() {
                       {latest.network?.latency_avg != null
                         ? latest.network.latency_avg.toFixed(1)
                         : "-"}{" "}
-                      <span className="text-sm font-normal text-slate-500">ms Avg</span>
+                      <span className="text-sm font-normal text-slate-500">
+                        ms Avg
+                      </span>
                     </div>
                     <div className="text-sm text-slate-500">
                       {latest.network?.packet_loss_avg != null
@@ -363,7 +367,9 @@ export default function Metrics() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-64">
                   {/* Bandwidth Graph */}
                   <div className="bg-background/50 rounded-lg p-4 border">
-                    <h4 className="mb-4 text-sm font-semibold">Throughput (Mbps)</h4>
+                    <h4 className="mb-4 text-sm font-semibold">
+                      Throughput (Mbps)
+                    </h4>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -399,7 +405,9 @@ export default function Metrics() {
 
                   {/* Packets Graph */}
                   <div className="bg-background/50 rounded-lg p-4 border">
-                    <h4 className="mb-4 text-sm font-semibold">Packet Rate (PPS)</h4>
+                    <h4 className="mb-4 text-sm font-semibold">
+                      Packet Rate (PPS)
+                    </h4>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
