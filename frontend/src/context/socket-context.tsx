@@ -7,6 +7,7 @@ import {
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { BACKEND_URL } from "@/config";
+import { socketLogger } from "@/lib/logger";
 
 interface SocketContextType {
   socket: Socket | null;
@@ -40,17 +41,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleConnect = () => {
-      console.log("Socket connected to backend");
+      socketLogger.info("Connected to backend");
       setIsConnected(true);
     };
 
     const handleDisconnect = () => {
-      console.log("Socket disconnected from backend");
+      socketLogger.info("Disconnected from backend");
       setIsConnected(false);
     };
 
     const handleError = (err: Error) => {
-      console.error("Socket connection error:", err.message);
+      socketLogger.error("Connection error:", err.message);
     };
 
     socket.on("connect", handleConnect);
