@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useSocket } from "@/context/socket-context";
 import type { AgentStats } from "@/types/network";
+import { METRICS } from "@/lib/constants";
 
 export interface Metrics extends AgentStats {
   agent_id: string;
@@ -42,7 +43,9 @@ export function MetricsProvider({ children }: { children: React.ReactNode }) {
         const currentAgentMetrics = prev[agentId] || [];
         return {
           ...prev,
-          [agentId]: [...currentAgentMetrics, newMetric].slice(-100), // Keep last 100 per agent
+          [agentId]: [...currentAgentMetrics, newMetric].slice(
+            -METRICS.MAX_PER_AGENT,
+          ),
         };
       });
     };
