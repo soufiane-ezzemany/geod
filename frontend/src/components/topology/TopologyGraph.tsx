@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { useSocket } from "@/context/socket-context";
 import { useTopologyCommands } from "@/hooks/topology/useTopologyCommands";
 import { determineLinkColor, processTopologyData } from "@/lib/topology-utils";
+import { apiLogger } from "@/lib/logger";
 import { apiService } from "@/services/api.service";
 import type {
   LinkStatsUpdate,
@@ -101,7 +102,7 @@ const TopologyGraph = () => {
     apiService
       .getTopology()
       .then((data) => processRef.current?.(data))
-      .catch((err) => console.error("Failed to fetch topology:", err));
+      .catch((err) => apiLogger.error("Failed to fetch topology:", err));
 
     if (!socket) return;
 

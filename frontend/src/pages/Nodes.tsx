@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Server } from "lucide-react";
 import { useSocket } from "@/context/socket-context";
 import { apiService } from "@/services/api.service";
+import { apiLogger } from "@/lib/logger";
 import type { AgentInfo } from "@/types/network";
 
 export default function Nodes() {
@@ -15,7 +16,7 @@ export default function Nodes() {
     apiService
       .getAgents()
       .then((data) => setAgents(data))
-      .catch((err) => console.error("Failed to fetch agents:", err));
+      .catch((err) => apiLogger.error("Failed to fetch agents:", err));
 
     if (!socket) return;
 
