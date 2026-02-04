@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Edge, Node } from "reactflow";
+import type { Node } from "reactflow";
 import ReactFlow, {
   Background,
   Controls,
@@ -20,9 +20,14 @@ import type {
   LinkStatsUpdate,
   CommandParams,
   IperfClientParams,
-  TopologyLink,
 } from "@/types/network";
 import { BACKEND_URL, API_ENDPOINTS } from "@/config";
+import { topologyLogger } from "@/lib/logger";
+import {
+  determineLinkColor,
+  processTopologyData as processTopologyDataUtil,
+} from "@/lib/topology-utils";
+import { UI } from "@/lib/constants";
 
 const nodeTypes = {
   agent: AgentNode,
@@ -30,15 +35,6 @@ const nodeTypes = {
 
 const edgeTypes = {
   custom: CustomEdge,
-};
-
-const determineLinkColor = (latency: number, packetLoss: number = 0) => {
-  if (packetLoss >= 50) return "#ef4444"; // High loss = Red
-  if (packetLoss > 0) return "#f97316"; // Any loss = Orange
-  
-  if (latency < 20) return "#22c55e"; // Green
-  if (latency < 100) return "#eab308"; // Yellow
-  return "#ef4444"; // Red
 };
 
 const TopologyGraph = () => {
@@ -52,13 +48,13 @@ const TopologyGraph = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-      setSelectedNodeId(node.id);
+    setSelectedNodeId(node.id);
   }, []);
 
   // Define actions using useCallback to keep reference stable
   const handleNodeAction = useCallback(
     (action: string, nodeId: string, params?: CommandParams) => {
-      console.log(`Node Action: ${action} on ${nodeId}`, params);
+      topologyLogger.debug(`Node Action: ${action} on ${nodeId}`, params);
 
       if (action === "details") {
         toast.info(`Agent: ${nodeId}`);
@@ -68,7 +64,11 @@ const TopologyGraph = () => {
       // The following commands require an active WebSocket connection
       if (!socket || !socket.connected) {
         toast.error("WebSocket not connected — unable to send command.");
-        console.warn("Attempted command without socket connected:", action, nodeId, params);
+        topologyLogger.warn(
+          "Attempted command without socket connected:",
+          action,
+          nodeId,
+        );
         return;
       }
 
@@ -76,7 +76,7 @@ const TopologyGraph = () => {
         socket.emit("trigger_command", {
           target_hostname: nodeId,
           command: "ping",
-          params: params || { target: "8.8.8.8", count: 4 },
+          params: params || { target: "8.8.8.8", count: UI.DEFAULT_PING_COUNT },
         });
         toast.info(`Ping lancé depuis ${nodeId}...`);
       } else if (action === "traceroute") {
@@ -111,7 +111,7 @@ const TopologyGraph = () => {
         socket.emit("trigger_command", {
           target_hostname: nodeId,
           command: "start_iperf_server",
-          params: params || { port: 5201 },
+          params: params || { port: UI.DEFAULT_IPERF_PORT },
         });
         toast.success(`Serveur Iperf démarré sur ${nodeId}`);
       } else if (action === "stop_iperf") {
@@ -121,27 +121,38 @@ const TopologyGraph = () => {
           params: {},
         });
         toast.success(`Serveur Iperf arrêté sur ${nodeId}`);
-      
-      // --- Chaos Control ---
+
+        // --- Chaos Control ---
       } else if (action === "chaos_control") {
         socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "chaos_control",
-            params: params,
+          target_hostname: nodeId,
+          command: "chaos_control",
+          params: params,
         });
         toast.success(`Chaos rules applied to ${nodeId}`);
       }
     },
-    [socket]
+    [socket],
   );
 
   const handleEdgeAction = useCallback(
-    (action: string, _edgeId: string, source: string, target: string, params?: CommandParams) => {
-      console.log(`Edge Action: ${action} on ${source}->${target}`, params);
-      
+    (
+      action: string,
+      _edgeId: string,
+      source: string,
+      target: string,
+      params?: CommandParams,
+    ) => {
+      topologyLogger.debug(
+        `Edge Action: ${action} on ${source}->${target}`,
+        params,
+      );
+
       if (action === "iperf") {
         if (!socket) {
-          toast.error("WebSocket not connected — impossible d'envoyer la commande.");
+          toast.error(
+            "WebSocket not connected — impossible d'envoyer la commande.",
+          );
           return;
         }
         const iperfParams = params as IperfClientParams;
@@ -161,14 +172,14 @@ const TopologyGraph = () => {
             command: "run_iperf_client",
             params: {
               target: target, // Assuming DNS/hosts resolves this, otherwise we need IP
-              duration: iperfParams?.duration || 10,
+              duration: iperfParams?.duration || UI.DEFAULT_IPERF_DURATION,
             },
           });
           toast.success(`Started Iperf Client on ${source} -> ${target}`);
         }, 1000);
       }
     },
-    [socket]
+    [socket],
   );
 
   // Initialize Socket
@@ -178,7 +189,7 @@ const TopologyGraph = () => {
 
     newSocket.on("connect", () => {
       setIsConnected(true);
-      console.log("Connected to backend");
+      topologyLogger.info("Connected to backend");
       // Request initial topology
       fetch(API_ENDPOINTS.topology)
         .then((res) => res.json())
@@ -209,14 +220,18 @@ const TopologyGraph = () => {
       } else {
         // Failure: clear pending flag and notify
         setEdges((eds) =>
-          eds.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e))
+          eds.map((e) =>
+            e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e,
+          ),
         );
         setPendingEdges((p) => {
           const copy = { ...p };
           delete copy[edgeId];
           return copy;
         });
-        toast.error(`Échec suppression lien ${source} → ${target}: ${message || "Erreur"}`);
+        toast.error(
+          `Échec suppression lien ${source} → ${target}: ${message || "Erreur"}`,
+        );
       }
     });
 
@@ -229,7 +244,9 @@ const TopologyGraph = () => {
           const exists = eds.find((e) => e.id === edgeId);
           if (exists) {
             return eds.map((e) =>
-              e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e
+              e.id === edgeId
+                ? { ...e, data: { ...e.data, pending: false } }
+                : e,
             );
           }
           // If not exists, add minimal edge (server will send topology_update soon)
@@ -253,14 +270,18 @@ const TopologyGraph = () => {
       } else {
         // Error: clear pending and notify
         setEdges((eds) =>
-          eds.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e))
+          eds.map((e) =>
+            e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e,
+          ),
         );
         setPendingEdges((p) => {
           const copy = { ...p };
           delete copy[edgeId];
           return copy;
         });
-        toast.error(`Échec ajout lien ${source} → ${target}: ${message || "Erreur"}`);
+        toast.error(
+          `Échec ajout lien ${source} → ${target}: ${message || "Erreur"}`,
+        );
       }
     });
 
@@ -274,7 +295,7 @@ const TopologyGraph = () => {
             };
           }
           return node;
-        })
+        }),
       );
     });
 
@@ -292,11 +313,19 @@ const TopologyGraph = () => {
 
             // Update the specific direction stats
             if (data.source === sortedIds[0]) {
-               // Forward update
-               newData.forward = { ...newData.forward, latency: updatedLatency, packet_loss: updatedLoss };
+              // Forward update
+              newData.forward = {
+                ...newData.forward,
+                latency: updatedLatency,
+                packet_loss: updatedLoss,
+              };
             } else {
-               // Backward update
-               newData.backward = { ...newData.backward, latency: updatedLatency, packet_loss: updatedLoss };
+              // Backward update
+              newData.backward = {
+                ...newData.backward,
+                latency: updatedLatency,
+                packet_loss: updatedLoss,
+              };
             }
 
             // Recalculate color based on max latency and max loss
@@ -317,7 +346,7 @@ const TopologyGraph = () => {
             };
           }
           return edge;
-        })
+        }),
       );
     });
 
@@ -330,104 +359,13 @@ const TopologyGraph = () => {
     (data: TopologyData) => {
       if (!data.nodes) return;
 
-      const newNodes: Node[] = data.nodes.map((n, index: number) => ({
-        id: n.id,
-        type: "agent",
-        position: { x: 100 + index * 250, y: 100 + (index % 2) * 100 },
-        data: {
-          label: n.id,
-          ip: n.ip || "Unknown",
-          os: (n.os as string) || "Linux",
-          status: (n.status as string) || "offline",
-          stats: null,
-          onAction: handleNodeAction,
+      const { nodes: newNodes, edges: newEdges } = processTopologyDataUtil(
+        data,
+        {
+          handleNodeAction,
+          handleEdgeAction,
         },
-      }));
-
-      // Helper to find node status
-      const getNodeStatus = (nodeId: string) => {
-        const n = data.nodes.find((x) => x.id === nodeId);
-        return n ? (n.status as string) : "offline";
-      };
-
-      // Group links by pair to create unified bidirectional edges
-      const linkPairs = new Map<string, { forward?: TopologyLink; backward?: TopologyLink }>();
-
-      data.links.forEach((l) => {
-        // Create a consistent key for the pair (e.g., "A-B")
-        // We always store the edge with the sorted key as base
-        const sortedIds = [l.source, l.target].sort();
-        const pairKey = `${sortedIds[0]}-${sortedIds[1]}`;
-
-        if (!linkPairs.has(pairKey)) {
-          linkPairs.set(pairKey, {});
-        }
-
-        const entry = linkPairs.get(pairKey)!;
-        // Determine if this is the "forward" (A->B) or "backward" (B->A) link relative to the sorted key
-        if (l.source === sortedIds[0]) {
-          entry.forward = l;
-        } else {
-          entry.backward = l;
-        }
-      });
-
-      const newEdges: Edge[] = [];
-
-      linkPairs.forEach((pair, key) => {
-        const [source, target] = key.split("-");
-        const sourceStatus = getNodeStatus(source);
-        const targetStatus = getNodeStatus(target);
-        
-        // A link is "active" for visual purposes if both nodes are online
-        const isNodesOnline = sourceStatus === "online" && targetStatus === "online";
-        
-        // We consider the edge "monitoring" if at least one direction is monitoring
-        const isMonitoring = (pair.forward?.monitoring !== false) || (pair.backward?.monitoring !== false);
-
-        // Calculate aggregate label or state
-        // We will pass the full objects to CustomEdge to handle the rendering
-        
-        let strokeColor = isNodesOnline ? "#64748b" : "#cbd5e1";
-        
-        if (isNodesOnline && isMonitoring) {
-             const latForward = pair.forward?.latency;
-             const latBackward = pair.backward?.latency;
-             
-             // If we have at least one latency reading, determine color based on the worst (max) latency
-             if (latForward !== undefined || latBackward !== undefined) {
-                 const val1 = latForward || 0;
-                 const val2 = latBackward || 0;
-                 const maxLat = Math.max(val1, val2);
-                 
-                 const loss1 = pair.forward?.packet_loss || 0;
-                 const loss2 = pair.backward?.packet_loss || 0;
-                 const maxLoss = Math.max(loss1, loss2);
-
-                 strokeColor = determineLinkColor(maxLat, maxLoss);
-             }
-        }
-
-        newEdges.push({
-          id: key,
-          source: source,
-          target: target,
-          type: "custom",
-          animated: isNodesOnline && isMonitoring,
-          style: {
-            stroke: strokeColor,
-            strokeWidth: 2,
-            strokeDasharray: isNodesOnline ? "none" : "5,5",
-            opacity: isNodesOnline ? 1 : 0.5,
-          },
-          data: {
-            onAction: handleEdgeAction,
-            forward: pair.forward,
-            backward: pair.backward,
-            isNodesOnline,
-          },
-        });
-      });
+      );
 
       setNodes((currentNodes) => {
         return newNodes.map((nn) => {
@@ -436,7 +374,11 @@ const TopologyGraph = () => {
             return {
               ...nn,
               position: existing.position,
-              data: { ...nn.data, stats: existing.data.stats, onAction: handleNodeAction },
+              data: {
+                ...nn.data,
+                stats: existing.data.stats,
+                onAction: handleNodeAction,
+              },
             };
           }
           return nn;
@@ -448,13 +390,16 @@ const TopologyGraph = () => {
         return newEdges.map((ne) => {
           const existing = currentEdges.find((ce) => ce.id === ne.id);
           if (existing && existing.data?.pending) {
-            return { ...ne, data: { ...ne.data, pending: true, onAction: handleEdgeAction } };
+            return {
+              ...ne,
+              data: { ...ne.data, pending: true, onAction: handleEdgeAction },
+            };
           }
           return { ...ne, data: { ...ne.data, onAction: handleEdgeAction } };
         });
       });
     },
-    [handleNodeAction, handleEdgeAction, setNodes, setEdges]
+    [handleNodeAction, handleEdgeAction, setNodes, setEdges],
   );
 
   const processRef = useRef<((data: TopologyData) => void) | null>(null);
@@ -472,7 +417,11 @@ const TopologyGraph = () => {
       )}
 
       <div className="absolute top-4 right-4 z-10 flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => window.location.reload()}
+        >
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
@@ -501,9 +450,11 @@ const TopologyGraph = () => {
         onClose={() => setSelectedNodeId(null)}
         nodeId={selectedNodeId}
         nodeData={nodes.find((n) => n.id === selectedNodeId)?.data}
-        onCommand={(cmd, params) => selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)}
+        onCommand={(cmd, params) =>
+          selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)
+        }
       />
-      
+
       {/* Command console moved to global layout */}
     </div>
   );
