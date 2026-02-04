@@ -1,16 +1,8 @@
 import { StatsCard } from "@/components/stats/StatsCard";
-import { useMetrics } from "@/hooks/useMetrics";
-import { useMetricsHistory } from "@/hooks/useMetricsHistory";
-import { formatBytes, processMetricsForChart } from "@/lib/metrics-utils";
-import {
-  Activity,
-  Clock,
-  HardDrive,
-  Network,
-  Server,
-  Wifi,
-} from "lucide-react";
-import { useState } from "react";
+import { BACKEND_URL } from "@/config";
+import { useMetrics, type Metrics as Metric } from "@/hooks/useMetrics";
+import { Activity, AlertCircle, Clock, HardDrive, Network, Server, Wifi } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -27,20 +19,78 @@ import {
 export default function Metrics() {
   const { metrics } = useMetrics();
   const [timeRange, setTimeRange] = useState("live");
+  const [historyData, setHistoryData] = useState<Record<string, Metric[]>>({});
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Use custom hook for history
-  const { historyData, loading: loadingHistory } = useMetricsHistory(timeRange);
+  // Use metrics directly (it is already grouped by agent)
+  const metricsByAgent = metrics;
 
-  // Determine which data to use
-  const activeData = timeRange === "live" ? metrics : historyData;
+  // Fetch history when range changes
+  useEffect(() => {
+    if (timeRange === "live") return;
+
+    const fetchHistory = async () => {
+      setLoadingHistory(true);
+      // Determine start/end/step
+      const end = Math.floor(Date.now() / 1000);
+      let start = end;
+      let step = "15s";
+
+      if (timeRange === "15m") start = end - 15 * 60;
+      if (timeRange === "1h") start = end - 60 * 60;
+      if (timeRange === "6h") {
+        start = end - 6 * 60 * 60;
+        step = "1m";
+      }
+      if (timeRange === "24h") {
+        start = end - 24 * 60 * 60;
+        step = "5m";
+      }
+      if (timeRange === "7d") {
+        start = end - 7 * 24 * 60 * 60;
+        step = "30m";
+      }
+
+      try {
+        // Get list of known agents
+        const agentsRes = await fetch(`${BACKEND_URL}/api/agents`);
+        const agents = await agentsRes.json();
+
+        const newHistory: Record<string, Metric[]> = {};
+
+        // Define strict type for history response item
+        type HistoryItem = Omit<Metric, "agent_id">;
+
+        for (const agent of agents) {
+          const hostname = agent.hostname;
+          const res = await fetch(
+            `${BACKEND_URL}/api/history?hostname=${hostname}&start=${start}&end=${end}&step=${step}`,
+          );
+          if (res.ok) {
+            const data = (await res.json()) as HistoryItem[];
+            // Inject agent_id and ensure structure
+            const enrichedData: Metric[] = data.map((m) => ({ ...m, agent_id: hostname }));
+            newHistory[hostname] = enrichedData;
+          }
+        }
+        setHistoryData(newHistory);
+      } catch (e) {
+        console.error("Failed to fetch history", e);
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+
+    fetchHistory();
+  }, [timeRange]);
+
+  const activeData = timeRange === "live" ? metricsByAgent : historyData;
 
   return (
     <div className="space-y-8 p-6 h-full flex flex-col overflow-y-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            System & Network Metrics
-          </h1>
+          <h1 className="text-3xl font-bold tracking-tight">System & Network Metrics</h1>
           <p className="text-muted-foreground">
             {timeRange === "live"
               ? "Real-time performance monitoring."
@@ -66,218 +116,316 @@ export default function Metrics() {
       </div>
 
       {loadingHistory && (
-        <div className="p-8 text-center text-muted-foreground">
-          Loading historical data...
-        </div>
+        <div className="p-8 text-center text-muted-foreground">Loading historical data...</div>
       )}
 
       {!loadingHistory && Object.keys(activeData).length > 0 ? (
         Object.entries(activeData).map(([agentId, agentMetrics]) => {
           if (!agentMetrics || agentMetrics.length === 0) return null;
 
-          // Process data using utility
-          const chartData = processMetricsForChart(agentMetrics);
-          const latest = agentMetrics[agentMetrics.length - 1];
+          // Sort metrics by time
+          const sortedMetrics = [...agentMetrics];
+          if (sortedMetrics[0] && sortedMetrics[0].timestamp) {
+            sortedMetrics.sort(
+              (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+            );
+          }
+
+          const latest = sortedMetrics[sortedMetrics.length - 1]; // Last item is latest after sort
+
+          // Calculate Rates for Charts (Delta / Time) or use pre-calculated
+          const chartData = sortedMetrics.map((m, i, arr) => {
+             // If backend provided pre-calculated rates (History Mode), use them
+             if (m.network?.throughput_sent_mbps !== undefined) {
+                 return {
+                    name: new Date(m.timestamp).toLocaleTimeString(),
+                    cpu: m.system?.cpu_percent || 0,
+                    mem: m.system?.memory?.percent || 0,
+                    disk: m.system?.disk?.percent || 0,
+                    throughputSentMbps: parseFloat((m.network.throughput_sent_mbps || 0).toFixed(2)),
+                    throughputRecvMbps: parseFloat((m.network.throughput_recv_mbps || 0).toFixed(2)),
+                    ppsSent: Math.round(m.network.pps_sent || 0),
+                    ppsRecv: Math.round(m.network.pps_recv || 0),
+                 };
+             }
+
+             // Fallback: Calculate from diff (Live Mode)
+             let throughputSentMbps = 0;
+             let throughputRecvMbps = 0;
+             let ppsSent = 0;
+             let ppsRecv = 0;
+
+             if (i > 0) {
+                 const prev = arr[i - 1];
+                 const timeDiff = (new Date(m.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
+                 
+                 if (timeDiff > 0) {
+                     // Bytes -> Bits -> Megabits / Seconds
+                     const deltaBytesSent = (m.network?.bytes_sent || 0) - (prev.network?.bytes_sent || 0);
+                     const deltaBytesRecv = (m.network?.bytes_recv || 0) - (prev.network?.bytes_recv || 0);
+                     
+                     // Handle counter resets (restarts)
+                     if (deltaBytesSent >= 0) throughputSentMbps = (deltaBytesSent * 8) / (1024 * 1024) / timeDiff;
+                     if (deltaBytesRecv >= 0) throughputRecvMbps = (deltaBytesRecv * 8) / (1024 * 1024) / timeDiff;
+
+                     const deltaPktsSent = (m.network?.packets_sent || 0) - (prev.network?.packets_sent || 0);
+                     const deltaPktsRecv = (m.network?.packets_recv || 0) - (prev.network?.packets_recv || 0);
+
+                     if (deltaPktsSent >= 0) ppsSent = deltaPktsSent / timeDiff;
+                     if (deltaPktsRecv >= 0) ppsRecv = deltaPktsRecv / timeDiff;
+                 }
+             }
+
+             return {
+                name: new Date(m.timestamp).toLocaleTimeString(),
+                cpu: m.system?.cpu_percent || 0,
+                mem: m.system?.memory?.percent || 0,
+                disk: m.system?.disk?.percent || 0,
+                // Rates
+                throughputSentMbps: parseFloat(throughputSentMbps.toFixed(2)),
+                throughputRecvMbps: parseFloat(throughputRecvMbps.toFixed(2)),
+                ppsSent: Math.round(ppsSent),
+                ppsRecv: Math.round(ppsRecv),
+             };
+          }).slice(1); // Remove first element as it has no rate (0)
 
           // Safe access for display values
           const diskUsedGB = latest.system?.disk?.used
-            ? formatBytes(latest.system.disk.used, "GB")
+            ? (latest.system.disk.used / 1024 / 1024 / 1024).toFixed(1)
             : "-";
           const diskTotalGB = latest.system?.disk?.total
-            ? formatBytes(latest.system.disk.total, "GB")
+            ? (latest.system.disk.total / 1024 / 1024 / 1024).toFixed(1)
             : "-";
           const memUsedMB = latest.system?.memory?.used
-            ? formatBytes(latest.system.memory.used, "MB")
-            : "-";
-          const memTotalMB = latest.system?.memory?.total
-            ? formatBytes(latest.system.memory.total, "MB")
+            ? (latest.system.memory.used / 1024 / 1024).toFixed(0)
             : "-";
 
           return (
-            <div
-              key={agentId}
-              className="space-y-4 border-t pt-8 first:border-t-0 first:pt-0"
-            >
-              <div className="flex items-center gap-2">
-                <Server className="w-5 h-5 text-primary" />
-                <h2 className="text-xl font-semibold">{agentId}</h2>
-                <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-md">
-                  {agentMetrics.length} samples
-                </span>
+            <div key={agentId} className="space-y-6 border rounded-xl p-6 bg-card shadow-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-semibold flex items-center gap-2">
+                  <Server className="w-6 h-6 text-primary" />
+                  {agentId}
+                </h2>
+                <div className="text-sm text-muted-foreground font-mono">
+                  {timeRange === "live" ? "Live" : "History"} | Last data:{" "}
+                  {new Date(latest.timestamp).toLocaleTimeString()}
+                </div>
               </div>
 
-              {/* Stats Grid */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <StatsCard
-                  title="CPU Usage"
-                  value={`${latest.system?.cpu_percent?.toFixed(1) || 0}%`}
-                  description="Total Load"
-                  icon={Activity}
-                />
-                <StatsCard
-                  title="Memory Usage"
-                  value={`${latest.system?.memory?.percent?.toFixed(1) || 0}%`}
-                  description={`${memUsedMB} / ${memTotalMB} MB`}
-                  icon={HardDrive}
-                />
-                <StatsCard
-                  title="Disk Usage"
-                  value={`${latest.system?.disk?.percent?.toFixed(1) || 0}%`}
-                  description={`${diskUsedGB} / ${diskTotalGB} GB`}
-                  icon={HardDrive}
-                />
-                <StatsCard
-                  title="Network Traffic"
-                  value={`${chartData[chartData.length - 1]?.throughputRecvMbps || 0} Mbps`}
-                  description={`⬇ ${chartData[chartData.length - 1]?.throughputRecvMbps || 0} / ⬆ ${chartData[chartData.length - 1]?.throughputSentMbps || 0}`}
-                  icon={Wifi}
-                />
-              </div>
+              {/* --- System Health Section --- */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                  System Health
+                </h3>
 
-              {/* Charts */}
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* 1. Throughput Chart */}
-                <div className="p-4 border rounded-xl bg-card shadow-sm">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <Network className="w-4 h-4" /> Throughput (Mbps)
-                    </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Left: 2x2 Grid of Cards */}
+                  <div className="grid grid-cols-2 gap-4 lg:col-span-1">
+                    <StatsCard
+                      title="CPU Usage"
+                      value={`${latest.system?.cpu_percent || 0}%`}
+                      description="Total Load"
+                      icon={Activity}
+                    />
+                    <StatsCard
+                      title="Memory Usage"
+                      value={`${latest.system?.memory?.percent || 0}%`}
+                      description={`${memUsedMB} MB Used`}
+                      icon={Server}
+                    />
+                    <StatsCard
+                      title="Disk Usage"
+                      value={`${latest.system?.disk?.percent || 0}%`}
+                      description={`${diskUsedGB} / ${diskTotalGB} GB`}
+                      icon={HardDrive}
+                    />
+                    <StatsCard
+                      title="Active Connections"
+                      value={latest.network?.active_connections || 0}
+                      description="Open Sockets"
+                      icon={Wifi}
+                    />
                   </div>
-                  <div className="h-[250px] w-full">
+
+                  {/* Right: Graph */}
+                  <div className="lg:col-span-2 h-full min-h-[300px]">
+                    <div className="bg-background/50 rounded-lg p-4 border h-full">
+                      <h4 className="mb-4 text-sm font-semibold">Resource History</h4>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="name" hide />
+                          <YAxis domain={[0, 100]} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: "white",
+                              borderRadius: "8px",
+                              fontSize: "12px",
+                            }}
+                          />
+                          <Legend />
+                          <Line
+                            type="monotone"
+                            dataKey="cpu"
+                            stroke="#ef4444"
+                            strokeWidth={2}
+                            dot={false}
+                            name="CPU %"
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="mem"
+                            stroke="#3b82f6"
+                            strokeWidth={2}
+                            dot={false}
+                            name="Mem %"
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="disk"
+                            stroke="#eab308"
+                            strokeWidth={2}
+                            dot={false}
+                            name="Disk %"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* --- Network Health Section --- */}
+              <div className="space-y-4 pt-4 border-t">
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                  Network Interface
+                </h3>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="p-4 bg-blue-50/50 rounded-lg border border-blue-100">
+                    <div className="text-sm text-blue-600 font-medium mb-1 flex items-center gap-2">
+                      <Network className="w-4 h-4" /> Traffic Volume
+                    </div>
+                    <div className="text-2xl font-bold text-slate-800">
+                      {((latest.network?.bytes_sent || 0) / 1024 / 1024).toFixed(1)}{" "}
+                      <span className="text-sm font-normal text-slate-500">MB Sent</span>
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      {((latest.network?.bytes_recv || 0) / 1024 / 1024).toFixed(1)} MB Recv
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-emerald-50/50 rounded-lg border border-emerald-100">
+                    <div className="text-sm text-emerald-600 font-medium mb-1 flex items-center gap-2">
+                      <Activity className="w-4 h-4" /> Packet Flow
+                    </div>
+                    <div className="text-2xl font-bold text-slate-800">
+                      {(latest.network?.packets_sent || 0).toLocaleString()}{" "}
+                      <span className="text-sm font-normal text-slate-500">Tx</span>
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      {(latest.network?.packets_recv || 0).toLocaleString()} Rx
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-red-50/50 rounded-lg border border-red-100">
+                    <div className="text-sm text-red-600 font-medium mb-1 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" /> Errors & Drops
+                    </div>
+                    <div className="text-2xl font-bold text-slate-800">
+                      {(latest.network?.errors_in || 0) + (latest.network?.errors_out || 0)}{" "}
+                      <span className="text-sm font-normal text-slate-500">Errors</span>
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      {(latest.network?.drop_in || 0) + (latest.network?.drop_out || 0)} Drops
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-50/50 rounded-lg border border-amber-100">
+                    <div className="text-sm text-amber-600 font-medium mb-1 flex items-center gap-2">
+                      <Wifi className="w-4 h-4" /> Latency & Loss
+                    </div>
+                    <div className="text-2xl font-bold text-slate-800">
+                      {latest.network?.latency_avg != null
+                        ? latest.network.latency_avg.toFixed(1)
+                        : "-"}{" "}
+                      <span className="text-sm font-normal text-slate-500">ms Avg</span>
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      {latest.network?.packet_loss_avg != null
+                        ? latest.network.packet_loss_avg.toFixed(1)
+                        : "0"}
+                      % Loss
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-64">
+                  {/* Bandwidth Graph */}
+                  <div className="bg-background/50 rounded-lg p-4 border">
+                    <h4 className="mb-4 text-sm font-semibold">Throughput (Mbps)</h4>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient
-                            id={`colorSent-${agentId}`}
-                            x1="0"
-                            y1="0"
-                            x2="0"
-                            y2="1"
-                          >
-                            <stop
-                              offset="5%"
-                              stopColor="#8884d8"
-                              stopOpacity={0.8}
-                            />
-                            <stop
-                              offset="95%"
-                              stopColor="#8884d8"
-                              stopOpacity={0}
-                            />
-                          </linearGradient>
-                          <linearGradient
-                            id={`colorRecv-${agentId}`}
-                            x1="0"
-                            y1="0"
-                            x2="0"
-                            y2="1"
-                          >
-                            <stop
-                              offset="5%"
-                              stopColor="#82ca9d"
-                              stopOpacity={0.8}
-                            />
-                            <stop
-                              offset="95%"
-                              stopColor="#82ca9d"
-                              stopOpacity={0}
-                            />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                        <XAxis
-                          dataKey="name"
-                          fontSize={10}
-                          tickMargin={10}
-                          minTickGap={30}
-                        />
-                        <YAxis fontSize={10} width={40} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="name" hide />
+                        <YAxis />
                         <Tooltip
                           contentStyle={{
+                            backgroundColor: "white",
                             borderRadius: "8px",
-                            border: "none",
-                            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                            fontSize: "12px",
                           }}
-                          labelStyle={{ color: "#666" }}
                         />
                         <Legend />
                         <Area
                           type="monotone"
                           dataKey="throughputSentMbps"
-                          name="Upload (Mbps)"
+                          stackId="1"
                           stroke="#8884d8"
-                          fillOpacity={1}
-                          fill={`url(#colorSent-${agentId})`}
-                          strokeWidth={2}
-                          isAnimationActive={false}
+                          fill="#8884d8"
+                          name="Tx (Mbps)"
                         />
                         <Area
                           type="monotone"
                           dataKey="throughputRecvMbps"
-                          name="Download (Mbps)"
+                          stackId="1"
                           stroke="#82ca9d"
-                          fillOpacity={1}
-                          fill={`url(#colorRecv-${agentId})`}
-                          strokeWidth={2}
-                          isAnimationActive={false}
+                          fill="#82ca9d"
+                          name="Rx (Mbps)"
                         />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
 
-                {/* 2. System Resource Chart */}
-                <div className="p-4 border rounded-xl bg-card shadow-sm">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <Activity className="w-4 h-4" /> System Resources (%)
-                    </h3>
-                  </div>
-                  <div className="h-[250px] w-full">
+                  {/* Packets Graph */}
+                  <div className="bg-background/50 rounded-lg p-4 border">
+                    <h4 className="mb-4 text-sm font-semibold">Packet Rate (PPS)</h4>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                        <XAxis
-                          dataKey="name"
-                          fontSize={10}
-                          tickMargin={10}
-                          minTickGap={30}
-                        />
-                        <YAxis domain={[0, 100]} fontSize={10} width={30} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="name" hide />
+                        <YAxis />
                         <Tooltip
                           contentStyle={{
+                            backgroundColor: "white",
                             borderRadius: "8px",
-                            border: "none",
-                            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                            fontSize: "12px",
                           }}
                         />
                         <Legend />
                         <Line
                           type="monotone"
-                          dataKey="cpu"
-                          name="CPU %"
-                          stroke="#ef4444"
-                          strokeWidth={2}
+                          dataKey="ppsSent"
+                          stroke="#f59e0b"
                           dot={false}
-                          isAnimationActive={false}
+                          name="Tx PPS"
                         />
                         <Line
                           type="monotone"
-                          dataKey="mem"
-                          name="Memory %"
-                          stroke="#3b82f6"
-                          strokeWidth={2}
+                          dataKey="ppsRecv"
+                          stroke="#10b981"
                           dot={false}
-                          isAnimationActive={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="disk"
-                          name="Disk %"
-                          stroke="#eab308"
-                          strokeWidth={2}
-                          dot={false}
-                          isAnimationActive={false}
+                          name="Rx PPS"
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -288,10 +436,13 @@ export default function Metrics() {
           );
         })
       ) : (
-        <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-          <Activity className="w-12 h-12 mb-4 opacity-20" />
-          <p>No metrics data available.</p>
-          <p className="text-sm">Ensure agents are connected and running.</p>
+        <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+          <Server className="w-16 h-16 mb-4 opacity-20" />
+          <p>
+            {timeRange === "live"
+              ? "Waiting for agent metrics..."
+              : "No historical data found for the selected period."}
+          </p>
         </div>
       )}
     </div>
