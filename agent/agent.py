@@ -94,7 +94,13 @@ class NetworkAgent:
     def _get_ip_address(self) -> str:
         """Get the primary IP address of this machine"""
         try:
-            # Connect to an external host to determine the primary interface IP
+            # Try to get FQDN first (for Grid5000 multi-site deployments)
+            fqdn = socket.getfqdn()
+            if '.' in fqdn and fqdn != socket.gethostname():
+                logger.info(f"Using FQDN as IP address: {fqdn}")
+                return fqdn
+            
+            # Fallback: Connect to an external host to determine the primary interface IP
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip_address = s.getsockname()[0]
