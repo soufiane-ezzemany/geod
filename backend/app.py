@@ -14,8 +14,8 @@ from application.service_factory import ServiceFactory
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
-CORS(app, origins=settings.CORS_ALLOWED_ORIGINS)
-socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 logger = setup_logging()
 container = ServiceFactory()
