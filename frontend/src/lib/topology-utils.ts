@@ -62,7 +62,7 @@ export function processTopologyData(
 
   data.links.forEach((l) => {
     const sortedIds = [l.source, l.target].sort();
-    const pairKey = `${sortedIds[0]}-${sortedIds[1]}`;
+    const pairKey = `${sortedIds[0]}::${sortedIds[1]}`;
 
     if (!linkPairs.has(pairKey)) {
       linkPairs.set(pairKey, {});
@@ -79,7 +79,7 @@ export function processTopologyData(
   const edges: Edge[] = [];
 
   linkPairs.forEach((pair, key) => {
-    const [source, target] = key.split("-");
+    const [source, target] = key.split("::");
     const sourceStatus = getNodeStatus(source);
     const targetStatus = getNodeStatus(target);
 

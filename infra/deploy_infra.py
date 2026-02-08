@@ -84,21 +84,14 @@ conf = (
         job_name=JOB_NAME,
         walltime=WALLTIME
     )
-    # Backend + Prometheus node
+    # Manager node: Backend + Frontend + Prometheus (all-in-one)
     .add_machine(
-        roles=["backend", "prometheus"],
+        roles=["manager", "backend", "frontend", "prometheus"],
         cluster="ecotype",
         nodes=1,
         site="nantes"
     )
-    # Frontend node
-    .add_machine(
-        roles=["frontend"],
-        cluster="ecotype",
-        nodes=1,
-        site="nantes"
-    )
-    # Agent nodes
+    # Agent nodes (distributed across sites)
     .add_machine(
         roles=["agent", "nantes"],
         cluster="ecotype",
@@ -117,36 +110,30 @@ conf = (
 # Reserve Nodes
 # =============================================================================
 
-print("\n[1/8] Reserving nodes...")
+print("\n[1/7] Reserving nodes...")
 provider = en.G5k(conf)
 roles, networks = provider.init()
 
-backend_node = roles["backend"][0]
-frontend_node = roles["frontend"][0]
+manager_node = roles["manager"][0]
 agent_nodes = roles["agent"]
 
-# Get IPs
+# Get IP for manager node
 try:
-    backend_ip = socket.gethostbyname(backend_node.address)
+    manager_ip = socket.gethostbyname(manager_node.address)
 except socket.gaierror:
-    backend_ip = backend_node.address
+    manager_ip = manager_node.address
 
-try:
-    frontend_ip = socket.gethostbyname(frontend_node.address)
-except socket.gaierror:
-    frontend_ip = frontend_node.address
+# Use hostname for better compatibility (agents will resolve via DNS)
+backend_url = f"http://{manager_node.address}:{BACKEND_PORT}"
 
-backend_url = f"http://{backend_ip}:{BACKEND_PORT}"
-
-print(f"  Backend node: {backend_node.address} ({backend_ip})")
-print(f"  Frontend node: {frontend_node.address} ({frontend_ip})")
+print(f"  Manager node: {manager_node.address} ({manager_ip})")
 print(f"  Agent nodes: {[n.address for n in agent_nodes]}")
 
 # =============================================================================
 # Prepare Clean Copies (excluding venv, node_modules, etc.)
 # =============================================================================
 
-print("\n[2/8] Preparing clean copies (excluding venv, node_modules)...")
+print("\n[2/7] Preparing clean copies (excluding venv, node_modules)...")
 
 backend_clean = copy_dir_excluding(BACKEND_DIR, "", EXCLUDED_DIRS)
 frontend_clean = copy_dir_excluding(FRONTEND_DIR, "", EXCLUDED_DIRS)
@@ -159,29 +146,37 @@ try:
     # Deploy Backend
     # =============================================================================
 
-    print(f"\n[3/8] Deploying backend...")
+    print(f"\n[3/7] Deploying backend...")
 
     with en.actions(roles=roles["backend"]) as a:
         a.copy(src=backend_clean, dest="~")
 
-    print("\n[4/8] Installing backend dependencies...")
+    print("\n[4/7] Installing backend dependencies...")
 
     with en.actions(roles=roles["backend"]) as a:
         a.shell("sudo apt-get update && sudo apt-get install -y python3-pip")
         a.shell(f"sudo pip3 install -r {REMOTE_BACKEND_DIR}/requirements.txt")
 
-    print("\n[5/8] Starting backend + Prometheus...")
+    print("\n[5/7] Starting backend + Prometheus...")
 
     # Create prometheus config with correct backend address
+    # Generate agent targets dynamically
+    agent_targets = ", ".join([f"'{n.address}:8000'" for n in agent_nodes])
+    
     prometheus_config_content = f"""global:
-      scrape_interval: 5s
+  scrape_interval: 5s
 
-    scrape_configs:
-      - job_name: 'geod-backend'
-        scrape_interval: 5s
-        static_configs:
-          - targets: ['localhost:{BACKEND_PORT}']
-    """
+scrape_configs:
+  - job_name: 'geod-backend'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['localhost:{BACKEND_PORT}']
+
+  - job_name: 'geod-agents'
+    scrape_interval: 5s
+    static_configs:
+      - targets: [{agent_targets}]
+"""
 
     with en.actions(roles=roles["backend"]) as a:
         # Start backend
@@ -204,12 +199,12 @@ try:
     # Deploy Frontend
     # =============================================================================
 
-    print(f"\n[6/8] Deploying frontend...")
+    print(f"\n[6/7] Deploying frontend...")
 
     with en.actions(roles=roles["frontend"]) as a:
         a.copy(src=frontend_clean, dest="~")
 
-    print("\n[7/8] Installing frontend dependencies...")
+    print("\n  Installing frontend dependencies...")
 
     with en.actions(roles=roles["frontend"]) as a:
         # Install Node.js
@@ -239,7 +234,7 @@ try:
     # Deploy Agents
     # =============================================================================
 
-    print(f"\n[8/8] Deploying agents...")
+    print(f"\n[7/7] Deploying agents...")
 
     with en.actions(roles=roles["agent"]) as a:
         a.copy(src=agent_clean, dest="~")
@@ -275,11 +270,12 @@ print("DEPLOYMENT SUCCESSFUL!")
 print("=" * 60)
 
 print(f"""
-SERVICES
---------
-  Backend:    http://{backend_node.address}:{BACKEND_PORT}
-  Frontend:   http://{frontend_node.address}:{FRONTEND_PORT}
-  Prometheus: http://{backend_node.address}:{PROMETHEUS_PORT}
+MANAGER NODE (all services)
+---------------------------
+  Address:    {manager_node.address}
+  Backend:    http://{manager_node.address}:{BACKEND_PORT}
+  Frontend:   http://{manager_node.address}:{FRONTEND_PORT}
+  Prometheus: http://{manager_node.address}:{PROMETHEUS_PORT}
 
 AGENTS ({len(agent_nodes)} nodes)
 ------""")
@@ -288,12 +284,12 @@ for node in agent_nodes:
     print(f"  - {node.address}")
 
 print(f"""
-SSH TUNNELS (run from your local machine)
------------------------------------------
-# Access all services locally:
-ssh -L {BACKEND_PORT}:{backend_node.address}:{BACKEND_PORT} \\
-    -L {FRONTEND_PORT}:{frontend_node.address}:{FRONTEND_PORT} \\
-    -L {PROMETHEUS_PORT}:{backend_node.address}:{PROMETHEUS_PORT} \\
+SSH TUNNEL (run from your local machine)
+----------------------------------------
+# Access all services locally (single tunnel to manager):
+ssh -L {BACKEND_PORT}:{manager_node.address}:{BACKEND_PORT} \\
+    -L {FRONTEND_PORT}:{manager_node.address}:{FRONTEND_PORT} \\
+    -L {PROMETHEUS_PORT}:{manager_node.address}:{PROMETHEUS_PORT} \\
     -J <your_user>@access.grid5000.fr \\
     <your_user>@fnantes.grid5000.fr
 
@@ -303,3 +299,4 @@ Then open in browser:
 """)
 
 print("=" * 60)
+
