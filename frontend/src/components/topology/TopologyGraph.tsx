@@ -411,7 +411,7 @@ const TopologyGraph = () => {
   }, [processTopologyData]);
 
   return (
-    <div className="w-full h-[calc(100vh-100px)] bg-slate-50 relative rounded-xl border overflow-hidden">
+    <div className="w-full h-full bg-slate-50 relative rounded-xl border overflow-hidden">
       {!isConnected && (
         <div className="absolute top-0 left-0 w-full h-1 bg-red-500 z-50 animate-pulse" />
       )}

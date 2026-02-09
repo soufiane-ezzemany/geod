@@ -11,9 +11,9 @@ export default function DashboardLayout() {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      <SidebarInset className="h-screen overflow-hidden">
         <Header />
-        <div className="flex flex-1 flex-col gap-4 p-4 pt-0 mb-8">
+        <div className="flex flex-1 flex-col gap-3 p-3 pt-0 overflow-hidden">
           <Outlet />
         </div>
         <CommandConsole entries={entries} onClear={clear} />
