@@ -450,6 +450,13 @@ const TopologyGraph = () => {
         onClose={() => setSelectedNodeId(null)}
         nodeId={selectedNodeId}
         nodeData={nodes.find((n) => n.id === selectedNodeId)?.data}
+        allNodes={nodes
+          .filter((n) => n.id !== selectedNodeId)
+          .map((n) => ({
+            id: n.id,
+            ip: n.data?.ip,
+            hostname: n.data?.label || n.id,
+          }))}
         onCommand={(cmd, params) =>
           selectedNodeId && handleNodeAction(cmd, selectedNodeId, params)
         }
