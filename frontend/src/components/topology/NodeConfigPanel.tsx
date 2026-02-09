@@ -16,10 +16,18 @@ import {
   Zap,
   BarChart3,
   Wrench,
+  Target,
 } from "lucide-react";
 import type { AgentStats, CommandParams, ChaosRule } from "@/types/network";
 import { ChaosEngineering } from "@/components/ChaosEngineering";
+import { TargetRules } from "@/components/TargetRules";
 import { cn } from "@/lib/utils";
+
+export interface OtherNode {
+  id: string;
+  ip?: string;
+  hostname: string;
+}
 
 interface NodeConfigPanelProps {
   isOpen: boolean;
@@ -31,6 +39,7 @@ interface NodeConfigPanelProps {
     status?: string;
     stats?: AgentStats;
   };
+  allNodes?: OtherNode[];
   onCommand: (command: string, params?: CommandParams) => void;
 }
 
@@ -39,6 +48,7 @@ export function NodeConfigPanel({
   onClose,
   nodeId,
   nodeData,
+  allNodes = [],
   onCommand,
 }: NodeConfigPanelProps) {
   if (!nodeId) return null;
@@ -54,8 +64,8 @@ export function NodeConfigPanel({
                 <Laptop2 className="w-5 h-5 text-white" />
               </div>
               <div>
-                <span className="font-bold">{nodeId}</span>
-                <DialogDescription className="mt-0.5">
+                <span className="font-bold text-lg">{nodeId}</span>
+                <DialogDescription className="mt-0.5 text-sm">
                   Configure network, run diagnostics, and view stats
                 </DialogDescription>
               </div>
@@ -97,34 +107,52 @@ export function NodeConfigPanel({
         {/* Tabs content area with scroll */}
         <div className="p-6 overflow-y-auto max-h-[calc(85vh-160px)]">
           <Tabs defaultValue="chaos" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6 bg-slate-100/80 p-1 rounded-xl">
+            <TabsList className="grid w-full grid-cols-4 mb-6 bg-slate-100/80 p-1 rounded-xl">
               <TabsTrigger
                 value="chaos"
-                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-2"
+                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-1.5 text-sm"
               >
                 <Zap className="w-4 h-4" />
-                Chaos
+                Global
+              </TabsTrigger>
+              <TabsTrigger
+                value="target"
+                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-1.5 text-sm"
+              >
+                <Target className="w-4 h-4" />
+                Target
               </TabsTrigger>
               <TabsTrigger
                 value="tools"
-                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-2"
+                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-1.5 text-sm"
               >
                 <Wrench className="w-4 h-4" />
-                Diagnostics
+                Tools
               </TabsTrigger>
               <TabsTrigger
                 value="stats"
-                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-2"
+                className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-1.5 text-sm"
               >
                 <BarChart3 className="w-4 h-4" />
                 Stats
               </TabsTrigger>
             </TabsList>
 
-            {/* --- Chaos Engineering Tab --- */}
+            {/* --- Global Chaos Tab --- */}
             <TabsContent value="chaos" className="space-y-4 mt-0">
               <ChaosEngineering
                 nodeId={nodeId}
+                onApplyRules={(rules: ChaosRule[]) => {
+                  onCommand("chaos_control", { rules });
+                }}
+              />
+            </TabsContent>
+
+            {/* --- Target Rules Tab --- */}
+            <TabsContent value="target" className="space-y-4 mt-0">
+              <TargetRules
+                nodeId={nodeId}
+                availableNodes={allNodes}
                 onApplyRules={(rules: ChaosRule[]) => {
                   onCommand("chaos_control", { rules });
                 }}
@@ -136,7 +164,7 @@ export function NodeConfigPanel({
               <div className="grid gap-3">
                 <div className="p-4 border rounded-xl hover:bg-slate-50/80 transition-all duration-200 hover:shadow-sm group">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold flex items-center gap-2">
+                    <div className="font-semibold flex items-center gap-2 text-base">
                       <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-colors">
                         <Network className="w-4 h-4 text-green-600" />
                       </div>
@@ -151,14 +179,14 @@ export function NodeConfigPanel({
                       Run Ping
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground pl-10">
+                  <p className="text-sm text-muted-foreground pl-10">
                     Sends 4 ICMP packets to Google DNS (8.8.8.8)
                   </p>
                 </div>
 
                 <div className="p-4 border rounded-xl hover:bg-slate-50/80 transition-all duration-200 hover:shadow-sm group">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold flex items-center gap-2">
+                    <div className="font-semibold flex items-center gap-2 text-base">
                       <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-colors">
                         <Terminal className="w-4 h-4 text-amber-600" />
                       </div>
@@ -175,14 +203,14 @@ export function NodeConfigPanel({
                       Run Trace
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground pl-10">
+                  <p className="text-sm text-muted-foreground pl-10">
                     Maps the route packets take to reach 8.8.8.8
                   </p>
                 </div>
 
                 <div className="p-4 border rounded-xl hover:bg-slate-50/80 transition-all duration-200 hover:shadow-sm group">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold flex items-center gap-2">
+                    <div className="font-semibold flex items-center gap-2 text-base">
                       <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-colors">
                         <Activity className="w-4 h-4 text-purple-600" />
                       </div>
@@ -206,7 +234,7 @@ export function NodeConfigPanel({
                       </Button>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground pl-10">
+                  <p className="text-sm text-muted-foreground pl-10">
                     Starts an Iperf3 server on port 5201
                   </p>
                 </div>
@@ -218,7 +246,7 @@ export function NodeConfigPanel({
               {!nodeData?.stats ? (
                 <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                   <Activity className="w-10 h-10 mb-3 opacity-20" />
-                  <p className="text-sm">No live stats available</p>
+                  <p className="text-base">No live stats available</p>
                   <Button
                     variant="outline"
                     size="sm"
@@ -234,7 +262,7 @@ export function NodeConfigPanel({
                     {/* CPU */}
                     <div className="p-4 border rounded-xl bg-gradient-to-br from-blue-50/50 to-transparent">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-muted-foreground">
+                        <span className="text-base font-medium text-muted-foreground">
                           CPU Usage
                         </span>
                         <span className="text-2xl font-bold text-blue-600">
@@ -255,10 +283,10 @@ export function NodeConfigPanel({
                     <div className="p-4 border rounded-xl bg-gradient-to-br from-purple-50/50 to-transparent">
                       <div className="flex items-center justify-between mb-2">
                         <div>
-                          <span className="text-sm font-medium text-muted-foreground">
+                          <span className="text-base font-medium text-muted-foreground">
                             Memory Usage
                           </span>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             {(
                               nodeData.stats.system?.memory?.used /
                               1024 /
@@ -284,7 +312,7 @@ export function NodeConfigPanel({
                     {/* Disk */}
                     <div className="p-4 border rounded-xl bg-gradient-to-br from-amber-50/50 to-transparent">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-muted-foreground">
+                        <span className="text-base font-medium text-muted-foreground">
                           Disk Usage
                         </span>
                         <span className="text-2xl font-bold text-amber-600">
