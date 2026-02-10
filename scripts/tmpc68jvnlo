@@ -1,0 +1,1 @@
+[{"hosts": "all", "gather_facts": false, "tasks": [{"name": "Check deployment", "raw": "mount | grep -q '^/dev/.*3 on / '", "args": {}}]}]
