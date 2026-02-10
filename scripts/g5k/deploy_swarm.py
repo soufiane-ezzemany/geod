@@ -34,27 +34,42 @@ def run_shell(roles, cmd, **kwargs):
 
 
 def deploy_swarm_cluster(site: str = "rennes", cluster: str = "parasilo",
-                         nodes: int = 3, walltime: str = "1:00:00"):
+                         nodes: int = 3, walltime: str = "1:00:00", no_deploy: bool = False):
     """Deploy a Docker Swarm cluster on Grid5000."""
 
     en.init_logging()
 
     logger.info(f"Reserving {nodes} nodes on {site}/{cluster}")
 
-    conf = (
-        en.G5kConf.from_settings(
-            job_name="geod-chaos",
-            job_type=["deploy"],
-            env_name="debian11-min",
-            walltime=walltime
+    if no_deploy:
+        logger.info("Using default environment (no OS deployment)")
+        conf = (
+            en.G5kConf.from_settings(
+                job_name="geod-chaos",
+                walltime=walltime
+            )
+            .add_machine(roles=["manager"], cluster=cluster, nodes=1)
+            .add_machine(roles=["worker"], cluster=cluster, nodes=nodes - 1)
+            .finalize()
         )
-        .add_machine(roles=["manager"], cluster=cluster, nodes=1)
-        .add_machine(roles=["worker"], cluster=cluster, nodes=nodes - 1)
-        .finalize()
-    )
+    else:
+        conf = (
+            en.G5kConf.from_settings(
+                job_name="geod-chaos",
+                job_type=["deploy"],
+                env_name="debian11-base",
+                walltime=walltime
+            )
+            .add_machine(roles=["manager"], cluster=cluster, nodes=1)
+            .add_machine(roles=["worker"], cluster=cluster, nodes=nodes - 1)
+            .finalize()
+        )
 
     provider = en.G5k(conf)
     roles, networks = provider.init()
+
+    if not roles.get("manager") or not roles.get("worker"):
+        raise Exception(f"Deployment failed: got {len(roles.get('manager', []))} manager(s) and {len(roles.get('worker', []))} worker(s). Try another site/cluster.")
 
     logger.info(f"Got {len(roles['manager'])} manager(s) and {len(roles['worker'])} worker(s)")
 
@@ -139,7 +154,7 @@ def wait_for_services(roles, max_wait: int = 120):
     while time.time() - start < max_wait:
         try:
             results = run_shell(roles["manager"],
-                               "docker stack services geod-chaos --format 'table {{.Name}}\\t{{.Replicas}}'")
+                               "docker stack services geod-chaos")
             for r in results:
                 if r.status == "OK":
                     output = r.payload.get("stdout", "")
@@ -149,14 +164,15 @@ def wait_for_services(roles, max_wait: int = 120):
                     all_ready = True
                     for line in lines:
                         if line.strip():
-                            parts = line.split()
-                            if len(parts) >= 2:
-                                replicas = parts[-1]
-                                if "/" in replicas:
-                                    current, desired = replicas.split("/")
-                                    if current != desired or current == "0":
-                                        all_ready = False
-                                        break
+                            # Parse "REPLICAS" column (format: "1/1" or "0/1")
+                            # Column positions vary, look for X/Y pattern
+                            import re
+                            match = re.search(r'(\d+)/(\d+)', line)
+                            if match:
+                                current, desired = match.groups()
+                                if current != desired or current == "0":
+                                    all_ready = False
+                                    break
 
                     if all_ready and lines:
                         logger.info("All services are ready!")
@@ -271,6 +287,7 @@ def main():
     parser.add_argument("--skip-test", action="store_true", help="Skip chaos test")
     parser.add_argument("--git-repo", help="Git repository URL to clone (recommended)")
     parser.add_argument("--git-branch", default="main", help="Git branch to use")
+    parser.add_argument("--no-deploy", action="store_true", help="Skip OS deployment (use default environment)")
     args = parser.parse_args()
 
     provider = None
@@ -279,7 +296,8 @@ def main():
             site=args.site,
             cluster=args.cluster,
             nodes=args.nodes,
-            walltime=args.walltime
+            walltime=args.walltime,
+            no_deploy=args.no_deploy
         )
 
         if not args.skip_build:
