@@ -1,0 +1,44 @@
+services:
+  webapp:
+    build: ./demo-webapp
+    container_name: demo-webapp
+    ports:
+      - "8080:8080"
+    networks:
+      - demo-net
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    container_name: demo-redis
+    networks:
+      - demo-net
+
+  backend:
+    build: ../backend
+    container_name: demo-backend
+    ports:
+      - "5001:5000"
+    networks:
+      - demo-net
+
+  chaos-agent:
+    build: ../agent
+    container_name: demo-chaos-agent
+    command: python agent.py --backend http://backend:5000
+    privileged: true
+    pid: host
+    restart: on-failure
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - demo-net
+    depends_on:
+      - backend
+
+networks:
+  demo-net:
+    driver: bridge
