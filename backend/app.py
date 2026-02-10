@@ -126,6 +126,79 @@ def get_chaos_rules(hostname):
         'message': 'Rule listing not yet implemented'
     })
 
+@app.route('/api/containers', methods=['GET'])
+def get_containers():
+    agent_hostname = request.args.get('agent')
+    if not agent_hostname:
+        return jsonify({'error': 'agent parameter required'}), 400
+
+    target_sid = container.agent_registry.get_sid_by_hostname(agent_hostname)
+    if not target_sid:
+        return jsonify({'error': 'Agent not found'}), 404
+
+    socketio.emit('execute_command', {
+        'command': 'discover_containers',
+        'params': {
+            'network': request.args.get('network'),
+            'include_stopped': request.args.get('include_stopped', 'false').lower() == 'true'
+        },
+        'request_id': f"containers_{int(time.time())}"
+    }, room=target_sid)
+
+    return jsonify({'status': 'request_sent', 'agent': agent_hostname})
+
+@app.route('/api/chaos/external/<hostname>', methods=['POST'])
+def set_external_chaos(hostname):
+    data = request.json
+    container_id = data.get('container_id')
+    rules = data.get('rules', [])
+    mode = data.get('mode', 'replace')
+
+    if not container_id:
+        return jsonify({'error': 'container_id required'}), 400
+
+    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
+    if not target_sid:
+        return jsonify({'error': 'Agent not found'}), 404
+
+    socketio.emit('execute_command', {
+        'command': 'external_chaos_control',
+        'params': {
+            'container_id': container_id,
+            'rules': rules,
+            'mode': mode
+        },
+        'request_id': f"ext_chaos_{int(time.time())}"
+    }, room=target_sid)
+
+    return jsonify({
+        'status': 'sent',
+        'agent': hostname,
+        'container_id': container_id,
+        'rules_count': len(rules)
+    })
+
+@app.route('/api/chaos/external/<hostname>/<container_id>', methods=['DELETE'])
+def clear_external_chaos(hostname, container_id):
+    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
+    if not target_sid:
+        return jsonify({'error': 'Agent not found'}), 404
+
+    socketio.emit('execute_command', {
+        'command': 'external_chaos_control',
+        'params': {
+            'container_id': container_id,
+            'rules': []
+        },
+        'request_id': f"ext_chaos_clear_{int(time.time())}"
+    }, room=target_sid)
+
+    return jsonify({
+        'status': 'cleared',
+        'agent': hostname,
+        'container_id': container_id
+    })
+
 @socketio.on('connect')
 def handle_connect():
     logger.info(f'Client connected: {request.sid}')
