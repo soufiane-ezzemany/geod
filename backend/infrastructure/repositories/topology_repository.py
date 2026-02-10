@@ -71,11 +71,11 @@ class TopologyRepository:
 
     def to_dict(self) -> Dict[str, Any]:
         with self._lock:
-            return nx.node_link_data(self._graph)
+            return nx.node_link_data(self._graph, edges="links")
 
     def from_dict(self, data: Dict[str, Any]) -> None:
         with self._lock:
-            self._graph = nx.node_link_graph(data)
+            self._graph = nx.node_link_graph(data, edges="links")
 
     def clear(self) -> None:
         with self._lock:
