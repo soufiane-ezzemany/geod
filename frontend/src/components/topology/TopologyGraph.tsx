@@ -184,7 +184,13 @@ const TopologyGraph = () => {
 
   // Initialize Socket
   useEffect(() => {
-    const newSocket = io(BACKEND_URL);
+    const newSocket = io(BACKEND_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      timeout: 20000,
+    });
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
@@ -301,7 +307,7 @@ const TopologyGraph = () => {
 
     newSocket.on("link_stats_update", (data: LinkStatsUpdate) => {
       const sortedIds = [data.source, data.target].sort();
-      const edgeId = `${sortedIds[0]}-${sortedIds[1]}`;
+      const edgeId = `${sortedIds[0]}::${sortedIds[1]}`;
 
       setEdges((eds) =>
         eds.map((edge) => {

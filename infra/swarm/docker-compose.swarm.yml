@@ -1,0 +1,186 @@
+version: "3.8"
+
+# =============================================================================
+# Geod - Docker Swarm Stack for Geodistributed Network Emulation
+# =============================================================================
+# Chaque agent représente un nœud géographique distinct avec sa propre
+# configuration réseau et capacité de contrôle via tc/netem.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend API
+  # ---------------------------------------------------------------------------
+  backend:
+    image: geod-backend:latest
+    build: ../../backend
+    ports:
+      - "5001:5000"
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  # ---------------------------------------------------------------------------
+  # Frontend
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: geod-frontend:latest
+    build: ../../frontend
+    ports:
+      - "5173:5173"
+    environment:
+      # IMPORTANT: Le browser ne peut pas résoudre "backend", il faut localhost
+      - VITE_BACKEND_URL=http://localhost:5001
+    networks:
+      - geod-overlay
+    command: npm run dev -- --host 0.0.0.0
+    deploy:
+      replicas: 1
+
+  # ---------------------------------------------------------------------------
+  # Agents Géodistribués - Chaque agent simule un nœud géographique
+  # ---------------------------------------------------------------------------
+  agent-paris:
+    image: geod-agent:latest
+    build: ../../agent
+    hostname: agent-paris
+    command: python agent.py --backend http://backend:5000
+    privileged: true  # Requis pour tc/netem
+    cap_add:
+      - NET_ADMIN  # Contrôle réseau
+    environment:
+      - AGENT_LOCATION=paris
+      - AGENT_REGION=europe
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  agent-newyork:
+    image: geod-agent:latest
+    build: ../../agent
+    hostname: agent-newyork
+    command: python agent.py --backend http://backend:5000
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - AGENT_LOCATION=newyork
+      - AGENT_REGION=north-america
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  agent-tokyo:
+    image: geod-agent:latest
+    build: ../../agent
+    hostname: agent-tokyo
+    command: python agent.py --backend http://backend:5000
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - AGENT_LOCATION=tokyo
+      - AGENT_REGION=asia
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  agent-sydney:
+    image: geod-agent:latest
+    build: ../../agent
+    hostname: agent-sydney
+    command: python agent.py --backend http://backend:5000
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - AGENT_LOCATION=sydney
+      - AGENT_REGION=oceania
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  agent-saopaulo:
+    image: geod-agent:latest
+    build: ../../agent
+    hostname: agent-saopaulo
+    command: python agent.py --backend http://backend:5000
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - AGENT_LOCATION=saopaulo
+      - AGENT_REGION=south-america
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ---------------------------------------------------------------------------
+  # Monitoring
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  # Portainer - Interface de gestion Docker (remplace Visualizer qui ne supporte pas ARM64)
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  geod-overlay:
+    driver: overlay
+    attachable: true
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  prometheus_data:
+  portainer_data:

@@ -15,7 +15,13 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    const socket = io(BACKEND_URL);
+    const socket = io(BACKEND_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      timeout: 20000,
+    });
 
     const calculateStats = (nodes: TopologyNode[], links: TopologyLink[]) => {
       const nodeCount = nodes.length;

@@ -30,7 +30,16 @@ let socketInstance: Socket | null = null;
 
 function getSocket(): Socket {
   if (!socketInstance) {
-    socketInstance = io(BACKEND_URL);
+    socketInstance = io(BACKEND_URL, {
+      // Allow both WebSocket and polling for fallback
+      transports: ["websocket", "polling"],
+      // Reconnection settings for Grid5000 network conditions
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+    });
   }
   return socketInstance;
 }

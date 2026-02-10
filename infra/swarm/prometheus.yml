@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "backend"
+    dns_sd_configs:
+      - names:
+          - "tasks.backend"
+        type: "A"
+        port: 5000
+
+  # Agents par localisation - scrape individuel pour métriques par nœud
+  - job_name: "agent-paris"
+    dns_sd_configs:
+      - names:
+          - "tasks.agent-paris"
+        type: "A"
+        port: 8000
+
+  - job_name: "agent-newyork"
+    dns_sd_configs:
+      - names:
+          - "tasks.agent-newyork"
+        type: "A"
+        port: 8000
+
+  - job_name: "agent-tokyo"
+    dns_sd_configs:
+      - names:
+          - "tasks.agent-tokyo"
+        type: "A"
+        port: 8000
+
+  - job_name: "agent-sydney"
+    dns_sd_configs:
+      - names:
+          - "tasks.agent-sydney"
+        type: "A"
+        port: 8000
+
+  - job_name: "agent-saopaulo"
+    dns_sd_configs:
+      - names:
+          - "tasks.agent-saopaulo"
+        type: "A"
+        port: 8000

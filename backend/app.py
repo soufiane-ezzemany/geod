@@ -1,10 +1,11 @@
+# CRITICAL: monkey_patch MUST be the first thing before any other imports
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import time
-import eventlet
-
-eventlet.monkey_patch()
 
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
@@ -14,8 +15,18 @@ from application.service_factory import ServiceFactory
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = settings.SECRET_KEY
-CORS(app, origins=settings.CORS_ALLOWED_ORIGINS)
-socketio = SocketIO(app, cors_allowed_origins=settings.CORS_ALLOWED_ORIGINS)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# Extended ping timeout for Grid5000 network latency
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='eventlet',
+    ping_timeout=60,
+    ping_interval=25,
+    logger=False,
+    engineio_logger=False
+)
 
 logger = setup_logging()
 container = ServiceFactory()
@@ -215,12 +226,14 @@ def monitor_links_loop():
                 target_agent = container.agent_registry.get_by_hostname(target)
 
                 if source_sid and target_agent:
-                    target_ip = target_agent.ip_address
+                    # Use hostname for ping in Docker Swarm overlay networks
+                    # IP addresses from bridge network don't route properly in overlay
+                    target_hostname = target_agent.hostname
 
-                    if target_ip:
+                    if target_hostname:
                         socketio.emit('execute_command', {
                             'command': 'ping',
-                            'params': {'target': target_ip, 'count': settings.PING_COUNT, 'target_hostname': target},
+                            'params': {'target': target_hostname, 'count': settings.PING_COUNT, 'target_hostname': target},
                             'request_id': f"monitor_{source}_{target}_{int(time.time())}"
                         }, room=source_sid)
 
