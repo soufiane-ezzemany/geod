@@ -118,6 +118,8 @@ class DockerDiscovery:
         return ip
 
     def get_container_interfaces(self, container_id: str) -> List[str]:
+        SKIP_INTERFACES = {'lo', 'tunl0', 'ip6tnl0', 'sit0', 'gre0', 'gretap0', 'ip_vti0', 'ip6_vti0', 'ip6gre0'}
+
         try:
             container = self.client.containers.get(container_id)
             result = container.exec_run('ip -o link show', demux=True)
@@ -129,11 +131,15 @@ class DockerDiscovery:
                         parts = line.split(':')
                         if len(parts) >= 2:
                             iface = parts[1].strip().split('@')[0]
-                            if iface != 'lo':
+                            if iface not in SKIP_INTERFACES:
                                 interfaces.append(iface)
 
+            if 'eth0' in interfaces:
+                interfaces.remove('eth0')
+                interfaces.insert(0, 'eth0')
+
             logger.debug(f"Container {container_id[:12]} interfaces: {interfaces}")
-            return interfaces
+            return interfaces if interfaces else ['eth0']
 
         except docker.errors.NotFound:
             logger.error(f"Container not found: {container_id}")

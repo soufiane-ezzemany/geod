@@ -16,6 +16,12 @@ from datetime import datetime
 import threading
 from tc_manager import TCManager
 
+try:
+    from docker_discovery import DockerDiscovery, DOCKER_AVAILABLE
+    from ns_tc_manager import NamespaceTCManager
+except ImportError:
+    DOCKER_AVAILABLE = False
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -42,7 +48,20 @@ class NetworkAgent:
         self.stats_interval = 5
         self.heartbeat_interval = 10
         self.iperf_process = None
-        
+
+        self.docker_discovery = None
+        self.ns_tc_manager = None
+        if DOCKER_AVAILABLE:
+            try:
+                self.docker_discovery = DockerDiscovery()
+                if self.docker_discovery.ping():
+                    self.ns_tc_manager = NamespaceTCManager(self.docker_discovery)
+                    logger.info("Docker discovery enabled")
+                else:
+                    self.docker_discovery = None
+            except Exception as e:
+                logger.warning(f"Docker discovery unavailable: {e}")
+
         self._register_handlers()
         
     def _register_handlers(self):
@@ -283,6 +302,12 @@ class NetworkAgent:
             elif command == 'chaos_control':
                 result['data'] = self._chaos_control(params)
 
+            elif command == 'discover_containers':
+                result['data'] = self._discover_containers(params)
+
+            elif command == 'external_chaos_control':
+                result['data'] = self._external_chaos_control(params)
+
             else:
                 result['status'] = 'error'
                 result['error'] = f"Unknown command: {command}"
@@ -381,6 +406,64 @@ class NetworkAgent:
         return {
             'status': 'applied',
             'interface': interface,
+            'rules_count': len(rules),
+            'results': results
+        }
+
+    def _discover_containers(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.docker_discovery:
+            return {'error': 'Docker discovery not available'}
+
+        try:
+            network = params.get('network')
+            include_stopped = params.get('include_stopped', False)
+            containers = self.docker_discovery.list_containers(network=network, include_stopped=include_stopped)
+            return {'containers': containers, 'count': len(containers)}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def _external_chaos_control(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.ns_tc_manager:
+            return {'error': 'External chaos control not available (Docker not accessible)'}
+
+        container_id = params.get('container_id')
+        rules = params.get('rules', [])
+        mode = params.get('mode', 'replace')
+
+        if not container_id:
+            return {'error': 'container_id required'}
+
+        tc_manager = TCManager()
+        for rule in rules:
+            if not tc_manager.validate_rule(rule):
+                return {'error': f'Invalid rule: {rule}'}
+
+        logger.info(f"External chaos on container {container_id[:12]}: {len(rules)} rules, mode={mode}")
+
+        if mode == 'replace':
+            self.ns_tc_manager.remove_all(container_id)
+
+        if not rules:
+            return {'status': 'cleared', 'container_id': container_id}
+
+        try:
+            self.ns_tc_manager.setup_hierarchy(container_id)
+        except Exception as e:
+            return {'error': f'Failed to setup hierarchy: {str(e)}'}
+
+        results = []
+        for idx, rule in enumerate(rules):
+            class_id = 10 + idx
+            try:
+                self.ns_tc_manager.add_rule(container_id, rule, class_id)
+                results.append({'rule': rule, 'status': 'success', 'class_id': class_id})
+            except Exception as e:
+                results.append({'rule': rule, 'status': 'error', 'error': str(e)})
+                logger.error(f"Failed to add rule {idx}: {e}")
+
+        return {
+            'status': 'applied',
+            'container_id': container_id,
             'rules_count': len(rules),
             'results': results
         }
