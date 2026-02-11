@@ -183,61 +183,6 @@ export function NodeConfigPanel({
                     Sends 4 ICMP packets to Google DNS (8.8.8.8)
                   </p>
                 </div>
-
-                <div className="p-4 border rounded-xl hover:bg-slate-50/80 transition-all duration-200 hover:shadow-sm group">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold flex items-center gap-2 text-base">
-                      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-colors">
-                        <Terminal className="w-4 h-4 text-amber-600" />
-                      </div>
-                      <span>Traceroute</span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        onCommand("traceroute", { target: "8.8.8.8" })
-                      }
-                      className="hover:bg-amber-50 hover:border-amber-300"
-                    >
-                      Run Trace
-                    </Button>
-                  </div>
-                  <p className="text-sm text-muted-foreground pl-10">
-                    Maps the route packets take to reach 8.8.8.8
-                  </p>
-                </div>
-
-                <div className="p-4 border rounded-xl hover:bg-slate-50/80 transition-all duration-200 hover:shadow-sm group">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold flex items-center gap-2 text-base">
-                      <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-colors">
-                        <Activity className="w-4 h-4 text-purple-600" />
-                      </div>
-                      <span>Iperf Server</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => onCommand("stop_iperf")}
-                        className="hover:bg-red-50 hover:border-red-300"
-                      >
-                        Stop
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => onCommand("start_iperf_server")}
-                        className="bg-purple-600 hover:bg-purple-700"
-                      >
-                        Start
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground pl-10">
-                    Starts an Iperf3 server on port 5201
-                  </p>
-                </div>
               </div>
             </TabsContent>
 
@@ -247,14 +192,6 @@ export function NodeConfigPanel({
                 <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                   <Activity className="w-10 h-10 mb-3 opacity-20" />
                   <p className="text-base">No live stats available</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3"
-                    onClick={() => onCommand("get_system_stats")}
-                  >
-                    Fetch Stats
-                  </Button>
                 </div>
               ) : (
                 <>
@@ -328,16 +265,6 @@ export function NodeConfigPanel({
                         />
                       </div>
                     </div>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onCommand("get_system_stats")}
-                    >
-                      Refresh Stats
-                    </Button>
                   </div>
                 </>
               )}

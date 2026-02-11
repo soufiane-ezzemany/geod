@@ -264,10 +264,6 @@ class NetworkAgent:
                 count = params.get('count', 4)
                 result['data'] = self._ping(target, count)
             
-            elif command == 'traceroute':
-                target = params.get('target', '8.8.8.8')
-                result['data'] = self._traceroute(target)
-            
             elif command == 'list_connections':
                 result['data'] = self._list_connections()
 
@@ -276,9 +272,6 @@ class NetworkAgent:
 
             elif command == 'run_iperf_client':
                 result['data'] = self._run_iperf_client(params)
-
-            elif command == 'stop_iperf':
-                result['data'] = self._stop_iperf()
 
             elif command == 'chaos_control':
                 result['data'] = self._chaos_control(params)
@@ -303,17 +296,6 @@ class NetworkAgent:
             return {'output': output, 'target': target, 'count': count}
         except subprocess.CalledProcessError as e:
             return {'error': e.output, 'target': target}
-    
-    def _traceroute(self, target: str) -> Dict[str, Any]:
-        """Execute traceroute command"""
-        try:
-            command = ['traceroute' if platform.system() != 'Windows' else 'tracert', target]
-            output = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=30)
-            return {'output': output, 'target': target}
-        except subprocess.CalledProcessError as e:
-            return {'error': e.output, 'target': target}
-        except subprocess.TimeoutExpired:
-            return {'error': 'Traceroute timed out', 'target': target}
     
     def _list_connections(self) -> Dict[str, Any]:
         """List all network connections"""
@@ -390,7 +372,7 @@ class NetworkAgent:
         try:
             port = params.get('port', 5201)
             # Kill existing if any
-            self._stop_iperf()
+            self._kill_existing_iperf()
             
             cmd = ['iperf3', '-s', '-p', str(port), '-D'] # Daemon mode
             # Note: subprocess.Popen is better for background tasks than check_output
@@ -433,7 +415,7 @@ class NetworkAgent:
         except Exception as e:
             return {'error': str(e)}
 
-    def _stop_iperf(self):
+    def _kill_existing_iperf(self):
         """Stop iperf processes"""
         try:
             # This is a bit aggressive, kills all iperf3 instances

@@ -18,8 +18,6 @@ A Python agent for network monitoring and manipulation that communicates with th
 
 **Ping**: Test connectivity to remote hosts
 
-**Traceroute**: Trace network path to destinations
-
 **Bandwidth Limiting**: Set bandwidth limits on network interfaces (Linux only)
 
 ### Communication

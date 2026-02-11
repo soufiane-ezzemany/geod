@@ -34,9 +34,6 @@ export function NodeContextMenu({ children, nodeId, onAction }: NodeContextMenuP
             >
               Ping 8.8.8.8
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => onAction("traceroute", nodeId, { target: "8.8.8.8" })}>
-              Traceroute 8.8.8.8
-            </ContextMenuItem>
             <ContextMenuItem onClick={() => onAction("list_connections", nodeId)}>
               Lister Connexions
             </ContextMenuItem>
@@ -113,20 +110,16 @@ export function NodeContextMenu({ children, nodeId, onAction }: NodeContextMenuP
             </ContextMenuSubContent>
         </ContextMenuSub>
 
-        <ContextMenuSeparator />
-
-        <ContextMenuSub>
-          <ContextMenuSubTrigger inset>Iperf Server</ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-48">
-            <ContextMenuItem onClick={() => onAction("start_iperf_server", nodeId, { port: 5201 })}>
-              Démarrer Serveur
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => onAction("stop_iperf", nodeId)}>
-              Arrêter Serveur
-            </ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-      </ContextMenuContent>
-    </ContextMenu>
-  );
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => onAction("get_system_stats", nodeId)}>
+                      Get System Stats
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      onClick={() => onAction("chaos_control", nodeId, { rules: [] })}
+                    >
+                      Clear Chaos Rules
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>  );
 }

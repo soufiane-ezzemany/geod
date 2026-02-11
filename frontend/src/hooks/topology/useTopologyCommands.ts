@@ -36,15 +36,6 @@ export function useTopologyCommands() {
           toast.info(`Ping lancé depuis ${nodeId}...`);
           break;
 
-        case "traceroute":
-          socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "traceroute",
-            params: params || { target: "8.8.8.8" },
-          });
-          toast.info(`Traceroute lancé depuis ${nodeId}...`);
-          break;
-
         case "list_connections":
           socket.emit("trigger_command", {
             target_hostname: nodeId,
@@ -70,24 +61,6 @@ export function useTopologyCommands() {
             params: {},
           });
           toast.info(`Stats système de ${nodeId}...`);
-          break;
-
-        case "start_iperf_server":
-          socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "start_iperf_server",
-            params: params || { port: UI.DEFAULT_IPERF_PORT },
-          });
-          toast.success(`Serveur Iperf démarré sur ${nodeId}`);
-          break;
-
-        case "stop_iperf":
-          socket.emit("trigger_command", {
-            target_hostname: nodeId,
-            command: "stop_iperf",
-            params: {},
-          });
-          toast.success(`Serveur Iperf arrêté sur ${nodeId}`);
           break;
 
         case "chaos_control":

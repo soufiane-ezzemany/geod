@@ -79,13 +79,6 @@ const TopologyGraph = () => {
           params: params || { target: "8.8.8.8", count: UI.DEFAULT_PING_COUNT },
         });
         toast.info(`Ping lancé depuis ${nodeId}...`);
-      } else if (action === "traceroute") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "traceroute",
-          params: params || { target: "8.8.8.8" },
-        });
-        toast.info(`Traceroute lancé depuis ${nodeId}...`);
       } else if (action === "list_connections") {
         socket.emit("trigger_command", {
           target_hostname: nodeId,
@@ -107,20 +100,6 @@ const TopologyGraph = () => {
           params: {},
         });
         toast.info(`Stats système de ${nodeId}...`);
-      } else if (action === "start_iperf_server") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "start_iperf_server",
-          params: params || { port: UI.DEFAULT_IPERF_PORT },
-        });
-        toast.success(`Serveur Iperf démarré sur ${nodeId}`);
-      } else if (action === "stop_iperf") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "stop_iperf",
-          params: {},
-        });
-        toast.success(`Serveur Iperf arrêté sur ${nodeId}`);
 
         // --- Chaos Control ---
       } else if (action === "chaos_control") {

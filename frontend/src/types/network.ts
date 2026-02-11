@@ -113,7 +113,6 @@ export interface LinkStatsUpdate {
 
 // --- Command Parameters ---
 export interface PingParams { target: string; count?: number; }
-export interface TracerouteParams { target: string; }
 export interface IperfServerParams { port?: number; }
 export interface IperfClientParams { target: string; duration?: number; port?: number; }
 export interface ToggleMonitoringParams { enabled: boolean; }
@@ -144,7 +143,6 @@ export interface ChaosControlParams {
 
 export type CommandParams =
   | PingParams
-  | TracerouteParams
   | IperfServerParams
   | IperfClientParams
   | ToggleMonitoringParams
@@ -153,7 +151,6 @@ export type CommandParams =
 
 // --- Command Results ---
 export interface PingResult { output: string; target: string; count: number; }
-export interface TracerouteResult { output: string; target: string; }
 export interface IperfServerResult { status: string; port: number; }
 export interface IperfClientSummary { bandwidth_mbps: number; bytes_sent: number; }
 export interface IperfClientResult { output: unknown; summary: IperfClientSummary; }
@@ -166,7 +163,6 @@ export interface ListConnectionsResult { connections: ConnectionInfo[]; count: n
 
 export type CommandResultData =
     | PingResult
-    | TracerouteResult
     | IperfServerResult
     | IperfClientResult
     | ListConnectionsResult
