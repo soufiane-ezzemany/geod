@@ -757,7 +757,10 @@ def execute_agent_command():
     ---
     tags:
       - Agents
-    description: This endpoint forwards a specified command and parameters to a target agent via WebSocket.
+    description: >
+      This endpoint forwards a specified command and parameters to a target agent via WebSocket.
+      Supported commands include 'ping', 'list_connections', 'get_network_stats', 'get_system_stats',
+      'start_iperf_server', and 'run_iperf_client'.
     parameters:
       - in: body
         name: body
@@ -773,17 +776,36 @@ def execute_agent_command():
               description: The hostname of the agent to execute the command on.
             command:
               type: string
-              description: The command to execute (e.g., 'ping', 'list_connections').
+              description: The command to execute.
+              enum: [ping, list_connections, get_network_stats, get_system_stats, start_iperf_server, run_iperf_client]
             params:
               type: object
-              description: Parameters for the command.
+              description: >
+                Parameters specific to the command.
+                For 'ping': { "target": "8.8.8.8", "count": 4 }
+                For 'run_iperf_client': { "target": "agent-2", "duration": 10 }
+          example:
+            target_hostname: "agent-1"
+            command: "ping"
+            params:
+              target: "8.8.8.8"
+              count: 4
     responses:
       200:
         description: Command successfully sent to agent.
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: "sent"
+            message:
+              type: string
+              example: "Command sent to agent"
       404:
         description: Agent not found.
       400:
-        description: Invalid request.
+        description: Invalid request (missing hostname or command).
     """
     data = request.json
     target_hostname = data.get('target_hostname')
