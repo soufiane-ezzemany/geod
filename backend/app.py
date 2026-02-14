@@ -80,6 +80,18 @@ def update_topology():
         required: true
         schema:
           type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                type: object
+            links:
+              type: array
+              items:
+                type: object
+          example:
+            nodes: [{"id": "agent-1"}, {"id": "agent-2"}]
+            links: [{"source": "agent-1", "target": "agent-2"}]
     responses:
       200:
         description: Topology updated
@@ -187,11 +199,38 @@ def set_host_chaos(hostname):
               type: array
               items:
                 type: object
+                properties:
+                  effects:
+                    type: object
+                    properties:
+                      latency:
+                        type: string
+                        example: "100ms"
+                      loss:
+                        type: string
+                        example: "10%"
+                      limit:
+                        type: string
+                        example: "100mbit"
+                  target:
+                    type: object
+                    properties:
+                      dst_ip:
+                        type: string
+                      dst_port:
+                        type: integer
             interface:
               type: string
             mode:
               type: string
               enum: [replace, append]
+          example:
+            rules:
+              - effects:
+                  latency: "100ms"
+                  loss: "5%"
+            interface: "eth0"
+            mode: "replace"
     responses:
       200:
         description: Rules applied
@@ -282,6 +321,11 @@ def set_container_chaos(hostname):
             mode:
               type: string
               enum: [replace, append]
+          example:
+            container_id: "a1b2c3d4e5"
+            rules:
+              - effects:
+                  latency: "50ms"
     responses:
       200:
         description: Rules applied
@@ -371,6 +415,11 @@ def set_service_chaos(service_name):
             mode:
               type: string
               enum: [replace, append]
+          example:
+            rules:
+              - effects:
+                  loss: "10%"
+            mode: "replace"
     responses:
       200:
         description: Rules applied
@@ -460,6 +509,11 @@ def quick_latency():
             host_for_container:
               type: string
               description: (Required if target_type=container) Hostname of the agent
+          example:
+            target: "agent-1"
+            latency: "100ms"
+            jitter: "10ms"
+            target_type: "host"
     responses:
       200:
         description: Latency applied
@@ -527,6 +581,10 @@ def quick_loss():
             host_for_container:
               type: string
               description: (Required if target_type=container) Hostname of the agent
+          example:
+            target: "my-service"
+            target_type: "service"
+            loss: "5%"
     responses:
       200:
         description: Loss applied
@@ -588,6 +646,9 @@ def quick_clear():
             host_for_container:
               type: string
               description: (Required if target_type=container) Hostname of the agent
+          example:
+            target: "agent-1"
+            target_type: "host"
     responses:
       200:
         description: Rules cleared
