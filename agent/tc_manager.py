@@ -59,11 +59,23 @@ class TCManager:
         effects = rule.get('effects', {})
 
         if effects.get('latency'):
-            netem_cmd.extend(['delay', effects['latency']])
+            val = effects['latency']
+            # Split string arguments (e.g., "100ms 10ms") into separate list items
+            args = val.split() if isinstance(val, str) else [str(val)]
+            netem_cmd.append('delay')
+            netem_cmd.extend(args)
+
         if effects.get('loss'):
-            netem_cmd.extend(['loss', effects['loss']])
+            val = effects['loss']
+            args = val.split() if isinstance(val, str) else [str(val)]
+            netem_cmd.append('loss')
+            netem_cmd.extend(args)
+
         if effects.get('limit'):
-            netem_cmd.extend(['rate', effects['limit']])
+            val = effects['limit']
+            args = val.split() if isinstance(val, str) else [str(val)]
+            netem_cmd.append('rate')
+            netem_cmd.extend(args)
 
         subprocess.run(netem_cmd, check=True)
 

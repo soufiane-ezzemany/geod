@@ -20,6 +20,9 @@ import type {
   LinkStatsUpdate,
   CommandParams,
   IperfClientParams,
+  ChaosControlParams,
+  LatencyParams,
+  LossParams,
 } from "@/types/network";
 import { BACKEND_URL, API_ENDPOINTS } from "@/config";
 import { topologyLogger } from "@/lib/logger";
@@ -28,6 +31,7 @@ import {
   processTopologyData as processTopologyDataUtil,
 } from "@/lib/topology-utils";
 import { UI } from "@/lib/constants";
+import { apiService } from "@/services/api.service";
 
 const nodeTypes = {
   agent: AgentNode,
@@ -40,7 +44,7 @@ const edgeTypes = {
 const TopologyGraph = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [, setPendingEdges] = useState<
     Record<string, { action: "remove" | "add"; ts: number }>
@@ -53,7 +57,7 @@ const TopologyGraph = () => {
 
   // Define actions using useCallback to keep reference stable
   const handleNodeAction = useCallback(
-    (action: string, nodeId: string, params?: CommandParams) => {
+    async (action: string, nodeId: string, params?: CommandParams) => {
       topologyLogger.debug(`Node Action: ${action} on ${nodeId}`, params);
 
       if (action === "details") {
@@ -61,61 +65,86 @@ const TopologyGraph = () => {
         return;
       }
 
-      // The following commands require an active WebSocket connection
-      if (!socket || !socket.connected) {
-        toast.error("WebSocket not connected — unable to send command.");
-        topologyLogger.warn(
-          "Attempted command without socket connected:",
-          action,
-          nodeId,
-        );
+      try {
+        if (action === "latency" && params) {
+          const p = params as LatencyParams;
+          const delay = p.delay || p.latency;
+
+          if (delay) {
+            await apiService.applyLatency(nodeId, String(delay));
+            toast.success(`Latence de ${delay} appliquée sur ${nodeId}`);
+          }
+          return;
+        }
+
+        if (action === "loss" && params) {
+          const p = params as LossParams;
+          const loss = p.loss;
+          if (loss) {
+            await apiService.applyLoss(nodeId, String(loss));
+            toast.success(`Perte de paquets de ${loss} appliquée sur ${nodeId}`);
+          }
+          return;
+        }
+
+        if (
+          action === "reset_traffic" ||
+          (action === "chaos_control" &&
+            params &&
+            "rules" in params &&
+            (params as ChaosControlParams).rules?.length === 0)
+        ) {
+          await apiService.clearChaos(nodeId);
+          toast.success(`Règles de chaos supprimées pour ${nodeId}`);
+          return;
+        }
+
+        if (action === "chaos_control" && params) {
+          const p = params as ChaosControlParams;
+          const rules = p.rules || [];
+          const mode = p.mode || "replace";
+          const iface = p.interface;
+          
+          await apiService.applyChaosConfig(nodeId, rules, iface, mode);
+          toast.success(`Chaos rules applied to ${nodeId}`);
+          return;
+        }
+
+        if (action === "ping") {
+          await apiService.executeCommand(
+            nodeId,
+            "ping",
+            params || { target: "8.8.8.8", count: UI.DEFAULT_PING_COUNT },
+          );
+          toast.info(`Ping lancé depuis ${nodeId}...`);
+          return;
+        } else if (action === "list_connections") {
+          await apiService.executeCommand(nodeId, "list_connections", {});
+          toast.info(`Liste des connexions de ${nodeId}...`);
+          return;
+        } else if (action === "get_network_stats") {
+          await apiService.executeCommand(nodeId, "get_network_stats", {});
+          toast.info(`Stats réseau de ${nodeId}...`);
+          return;
+        } else if (action === "get_system_stats") {
+          await apiService.executeCommand(nodeId, "get_system_stats", {});
+          toast.info(`Stats système de ${nodeId}...`);
+          return;
+        }
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          toast.error(`Erreur: ${error.message}`);
+        } else {
+          toast.error("Une erreur inconnue est survenue.");
+        }
         return;
       }
-
-      if (action === "ping") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "ping",
-          params: params || { target: "8.8.8.8", count: UI.DEFAULT_PING_COUNT },
-        });
-        toast.info(`Ping lancé depuis ${nodeId}...`);
-      } else if (action === "list_connections") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "list_connections",
-          params: {},
-        });
-        toast.info(`Liste des connexions de ${nodeId}...`);
-      } else if (action === "get_network_stats") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "get_network_stats",
-          params: {},
-        });
-        toast.info(`Stats réseau de ${nodeId}...`);
-      } else if (action === "get_system_stats") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "get_system_stats",
-          params: {},
-        });
-        toast.info(`Stats système de ${nodeId}...`);
-
-        // --- Chaos Control ---
-      } else if (action === "chaos_control") {
-        socket.emit("trigger_command", {
-          target_hostname: nodeId,
-          command: "chaos_control",
-          params: params,
-        });
-        toast.success(`Chaos rules applied to ${nodeId}`);
-      }
     },
-    [socket],
+    [], 
   );
 
   const handleEdgeAction = useCallback(
-    (
+    async (
       action: string,
       _edgeId: string,
       source: string,
@@ -128,37 +157,26 @@ const TopologyGraph = () => {
       );
 
       if (action === "iperf") {
-        if (!socket) {
-          toast.error(
-            "WebSocket not connected — impossible d'envoyer la commande.",
-          );
-          return;
+        try {
+            const iperfParams = params as IperfClientParams;
+            // 1. Start Server on Target
+            await apiService.executeCommand(target, "start_iperf_server", {});
+            toast.info(`Starting Iperf Server on ${target}...`);
+
+            // 2. Start Client on Source (after short delay)
+            setTimeout(async () => {
+              await apiService.executeCommand(source, "run_iperf_client", {
+                target: target,
+                duration: iperfParams?.duration || UI.DEFAULT_IPERF_DURATION,
+              });
+              toast.success(`Started Iperf Client on ${source} -> ${target}`);
+            }, 1000);
+        } catch (error) {
+            toast.error(`Erreur iperf: ${error}`);
         }
-        const iperfParams = params as IperfClientParams;
-        // 1. Start Server on Target
-        socket.emit("trigger_command", {
-          target_hostname: target,
-          command: "start_iperf_server",
-          params: {},
-        });
-
-        toast.info(`Starting Iperf Server on ${target}...`);
-
-        // 2. Start Client on Source (after short delay)
-        setTimeout(() => {
-          socket.emit("trigger_command", {
-            target_hostname: source,
-            command: "run_iperf_client",
-            params: {
-              target: target, // Assuming DNS/hosts resolves this, otherwise we need IP
-              duration: iperfParams?.duration || UI.DEFAULT_IPERF_DURATION,
-            },
-          });
-          toast.success(`Started Iperf Client on ${source} -> ${target}`);
-        }, 1000);
       }
     },
-    [socket],
+    [],
   );
 
   // Initialize Socket

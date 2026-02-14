@@ -137,8 +137,18 @@ export interface ChaosRule {
 
 export interface ChaosControlParams {
   interface?: string;
-  rules: ChaosRule[];
+  rules?: ChaosRule[];
   mode?: 'replace' | 'append';
+}
+
+export interface LatencyParams {
+  latency?: string;
+  delay?: string;
+  jitter?: string;
+}
+
+export interface LossParams {
+  loss?: string;
 }
 
 export type CommandParams =
@@ -147,6 +157,8 @@ export type CommandParams =
   | IperfClientParams
   | ToggleMonitoringParams
   | ChaosControlParams
+  | LatencyParams
+  | LossParams
   | Record<string, unknown>;
 
 // --- Command Results ---
