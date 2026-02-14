@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  backend:
+    image: geod-backend:latest
+    build: ../../backend
+    ports:
+      - "5001:5000"
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  webapp:
+    image: geod-demo-webapp:latest
+    build: ../demo-webapp
+    ports:
+      - "8080:8080"
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+
+  redis:
+    image: redis:alpine
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - geod-overlay
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+networks:
+  geod-overlay:
+    driver: overlay
+    attachable: true
