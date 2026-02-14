@@ -30,6 +30,7 @@ socketio = SocketIO(
 
 logger = setup_logging()
 container = ServiceFactory()
+container.init_chaos_service(lambda *args, **kwargs: socketio.emit(*args, **kwargs))
 
 @app.route('/')
 def hello_world():
@@ -74,130 +75,94 @@ def get_history():
         logger.error(f"Error fetching history for {hostname}: {e}")
         return jsonify({'error': 'Failed to fetch history'}), 500
 
-@app.route('/api/chaos/rules/<hostname>', methods=['POST'])
-def set_chaos_rules(hostname):
+@app.route('/api/chaos/host/<hostname>', methods=['POST'])
+def set_host_chaos(hostname):
     data = request.json
-    rules = data.get('rules', [])
-    interface = data.get('interface')
-    mode = data.get('mode', 'replace')
+    result = container.chaos_service.apply_vm_chaos(
+        hostname,
+        data.get('rules', []),
+        data.get('interface'),
+        data.get('mode', 'replace')
+    )
+    if 'error' in result:
+        return jsonify({'error': result['error']}), result.get('status_code', 400)
+    return jsonify(result)
 
-    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
-    if not target_sid:
-        return jsonify({'error': 'Agent not found'}), 404
+@app.route('/api/chaos/host/<hostname>', methods=['DELETE'])
+def clear_host_chaos(hostname):
+    result = container.chaos_service.clear_vm_chaos(hostname)
+    if 'error' in result:
+        return jsonify({'error': result['error']}), result.get('status_code', 400)
+    return jsonify(result)
 
-    socketio.emit('execute_command', {
-        'command': 'chaos_control',
-        'params': {
-            'rules': rules,
-            'interface': interface,
-            'mode': mode
-        },
-        'request_id': f"chaos_{int(time.time())}"
-    }, room=target_sid)
-
-    return jsonify({
-        'status': 'sent',
-        'hostname': hostname,
-        'rules_count': len(rules)
-    })
-
-@app.route('/api/chaos/rules/<hostname>', methods=['DELETE'])
-def clear_chaos_rules(hostname):
-    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
-    if not target_sid:
-        return jsonify({'error': 'Agent not found'}), 404
-
-    socketio.emit('execute_command', {
-        'command': 'chaos_control',
-        'params': {'rules': []},
-        'request_id': f"chaos_clear_{int(time.time())}"
-    }, room=target_sid)
-
-    return jsonify({
-        'status': 'cleared',
-        'hostname': hostname
-    })
-
-@app.route('/api/chaos/rules/<hostname>', methods=['GET'])
-def get_chaos_rules(hostname):
+@app.route('/api/chaos/host/<hostname>', methods=['GET'])
+def get_host_chaos(hostname):
     return jsonify({
         'hostname': hostname,
         'rules': [],
         'message': 'Rule listing not yet implemented'
     })
 
-@app.route('/api/containers', methods=['GET'])
-def get_containers():
-    agent_hostname = request.args.get('agent')
-    if not agent_hostname:
-        return jsonify({'error': 'agent parameter required'}), 400
-
-    target_sid = container.agent_registry.get_sid_by_hostname(agent_hostname)
-    if not target_sid:
-        return jsonify({'error': 'Agent not found'}), 404
-
-    socketio.emit('execute_command', {
-        'command': 'discover_containers',
-        'params': {
-            'network': request.args.get('network'),
-            'include_stopped': request.args.get('include_stopped', 'false').lower() == 'true'
-        },
-        'request_id': f"containers_{int(time.time())}"
-    }, room=target_sid)
-
-    return jsonify({'status': 'request_sent', 'agent': agent_hostname})
-
-@app.route('/api/chaos/external/<hostname>', methods=['POST'])
-def set_external_chaos(hostname):
+@app.route('/api/chaos/container/<hostname>', methods=['POST'])
+def set_container_chaos(hostname):
     data = request.json
     container_id = data.get('container_id')
-    rules = data.get('rules', [])
-    mode = data.get('mode', 'replace')
-
     if not container_id:
         return jsonify({'error': 'container_id required'}), 400
 
-    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
-    if not target_sid:
-        return jsonify({'error': 'Agent not found'}), 404
+    result = container.chaos_service.apply_container_chaos(
+        hostname,
+        container_id,
+        data.get('rules', []),
+        data.get('mode', 'replace')
+    )
+    if 'error' in result:
+        return jsonify({'error': result['error']}), result.get('status_code', 400)
+    return jsonify(result)
 
-    socketio.emit('execute_command', {
-        'command': 'external_chaos_control',
-        'params': {
-            'container_id': container_id,
-            'rules': rules,
-            'mode': mode
-        },
-        'request_id': f"ext_chaos_{int(time.time())}"
-    }, room=target_sid)
+@app.route('/api/chaos/container/<hostname>/<container_id>', methods=['DELETE'])
+def clear_container_chaos(hostname, container_id):
+    result = container.chaos_service.clear_container_chaos(hostname, container_id)
+    if 'error' in result:
+        return jsonify({'error': result['error']}), result.get('status_code', 400)
+    return jsonify(result)
 
+
+@app.route('/api/services', methods=['GET'])
+def get_services():
     return jsonify({
-        'status': 'sent',
-        'agent': hostname,
-        'container_id': container_id,
-        'rules_count': len(rules)
+        'services': container.container_registry.get_all(),
+        'agents': [agent.to_dict() for agent in container.agent_registry.get_all()]
     })
 
-@app.route('/api/chaos/external/<hostname>/<container_id>', methods=['DELETE'])
-def clear_external_chaos(hostname, container_id):
-    target_sid = container.agent_registry.get_sid_by_hostname(hostname)
-    if not target_sid:
-        return jsonify({'error': 'Agent not found'}), 404
 
-    socketio.emit('execute_command', {
-        'command': 'external_chaos_control',
-        'params': {
-            'container_id': container_id,
-            'rules': []
-        },
-        'request_id': f"ext_chaos_clear_{int(time.time())}"
-    }, room=target_sid)
+@app.route('/api/chaos/service/<service_name>', methods=['POST'])
+def set_service_chaos(service_name):
+    data = request.json
+    result = container.chaos_service.apply_service_chaos(
+        service_name,
+        data.get('rules', []),
+        data.get('mode', 'replace')
+    )
+    if 'error' in result:
+        return jsonify({'error': result['error'], 'hint': result.get('hint')}), result.get('status_code', 400)
+    return jsonify(result)
 
-    return jsonify({
-        'status': 'cleared',
-        'agent': hostname,
-        'container_id': container_id
-    })
+
+@app.route('/api/chaos/service/<service_name>', methods=['DELETE'])
+def clear_service_chaos(service_name):
+    result = container.chaos_service.clear_service_chaos(service_name)
+    if 'error' in result:
+        return jsonify({'error': result['error']}), result.get('status_code', 400)
+    return jsonify(result)
+
+
+@app.route('/api/discover', methods=['POST'])
+def trigger_discovery():
+    result = container.chaos_service.trigger_discovery()
+    if 'error' in result:
+        return jsonify({'error': result['error']}), result.get('status_code', 400)
+    return jsonify(result)
 
 @socketio.on('connect')
 def handle_connect():
@@ -210,6 +175,8 @@ def handle_disconnect():
     agent = container.agent_event_handler.handle_disconnection(sid)
 
     if agent:
+        container.container_registry.remove_agent(agent.hostname)
+
         socketio.server.emit('agent_disconnected', {
             'agent_id': sid,
             'hostname': agent.hostname
@@ -251,6 +218,12 @@ def handle_command_result(data):
 
     if update_info:
         socketio.server.emit('link_stats_update', update_info, namespace='/')
+
+    if command == 'discover_containers' and result_data:
+        agent = container.agent_registry.get_by_sid(sid)
+        if agent:
+            containers_list = result_data.get('containers', [])
+            container.container_registry.update_containers(agent.hostname, containers_list)
 
     request_id = data.get('request_id', '')
     if not container.command_handler.is_monitoring_request(request_id):

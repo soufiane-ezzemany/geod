@@ -117,6 +117,15 @@ class DockerDiscovery:
 
         return ip
 
+    def get_container_networks(self, container_id: str) -> Dict[str, Dict[str, str]]:
+        """Get network information for a container.
+
+        Returns:
+            Dict mapping network name to network info (ip, gateway, mac, network_id)
+        """
+        info = self.get_container(container_id)
+        return info['networks']
+
     def get_container_interfaces(self, container_id: str) -> List[str]:
         SKIP_INTERFACES = {'lo', 'tunl0', 'ip6tnl0', 'sit0', 'gre0', 'gretap0', 'ip_vti0', 'ip6_vti0', 'ip6gre0'}
 

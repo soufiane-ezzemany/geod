@@ -8,6 +8,8 @@ from application.services.topology_service import TopologyService
 from application.services.history_service import HistoryService
 from application.services.command_handler import CommandHandler
 from application.services.agent_event_handler import AgentEventHandler
+from application.services.container_registry import ContainerRegistry
+from application.services.chaos_service import ChaosService
 
 
 class ServiceFactory:
@@ -19,7 +21,9 @@ class ServiceFactory:
 
         self._metrics_service = MetricsService()
         self._agent_registry = AgentRegistry()
+        self._container_registry = ContainerRegistry()
         self._topology_service = TopologyService(self._topology_repository)
+        self._chaos_service = None
 
         self._history_service = HistoryService(self._prom_client)
         self._command_handler = CommandHandler(
@@ -60,3 +64,20 @@ class ServiceFactory:
     @property
     def agent_event_handler(self) -> AgentEventHandler:
         return self._agent_event_handler
+
+    @property
+    def container_registry(self) -> ContainerRegistry:
+        return self._container_registry
+
+    def init_chaos_service(self, emit_fn) -> None:
+        self._chaos_service = ChaosService(
+            self._agent_registry,
+            self._container_registry,
+            emit_fn
+        )
+
+    @property
+    def chaos_service(self) -> ChaosService:
+        if self._chaos_service is None:
+            raise RuntimeError("ChaosService not initialized. Call init_chaos_service() first.")
+        return self._chaos_service

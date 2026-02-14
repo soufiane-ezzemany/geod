@@ -475,10 +475,7 @@ class NetworkAgent:
             # Kill existing if any
             self._stop_iperf()
             
-            cmd = ['iperf3', '-s', '-p', str(port), '-D'] # Daemon mode
-            # Note: subprocess.Popen is better for background tasks than check_output
-            # But -D makes it daemonize itself, so check_output returns quickly? 
-            # Actually, -D makes it fork. 
+            cmd = ['iperf3', '-s', '-p', str(port), '-D']
             subprocess.check_call(cmd)
             return {'status': 'started', 'port': port}
         except Exception as e:

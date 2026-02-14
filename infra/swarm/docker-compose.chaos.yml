@@ -14,21 +14,6 @@ services:
         constraints:
           - node.role == manager
 
-  chaos-agent:
-    image: geod-agent:latest
-    build: ../../agent
-    command: python agent.py --backend http://backend:5000
-    privileged: true
-    pid: host
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - geod-overlay
-    deploy:
-      mode: global
-      restart_policy:
-        condition: on-failure
-
   webapp:
     image: geod-demo-webapp:latest
     build: ../demo-webapp
