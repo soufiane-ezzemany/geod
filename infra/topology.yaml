@@ -1,0 +1,23 @@
+# Topology Configuration for Geod (Local Docker Dev)
+#
+# Defines which agents are connected and with what network characteristics.
+# Only defined links appear as edges in the frontend graph.
+# Push this config to the backend with: python push_topology.py
+#
+# Fields:
+#   src/dst:    Agent hostnames (must match docker-compose service names)
+#   delay:      Simulated network delay (optional)
+#   rate:       Bandwidth limit (optional)
+#   symmetric:  If true (default), creates bidirectional link
+
+topology:
+  links:
+    - src: agent-paris
+      dst: agent-ny
+      delay: 80ms
+      rate: 100mbit
+
+    - src: agent-paris
+      dst: agent-tokyo
+      delay: 120ms
+      rate: 50mbit

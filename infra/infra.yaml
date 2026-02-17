@@ -1,0 +1,71 @@
+# infra.yaml — Single source of truth for Grid5000 deployment
+#
+# Usage: python deploy_infra.py
+# All fields below are parsed dynamically by the deployment script.
+
+job_name: geod-full-stack
+walltime: "02:00:00"
+env_name: debian11-min
+
+machines:
+  # Manager node: Backend + Frontend + Prometheus
+  - cluster: ecotype
+    site: nantes
+    nodes: 1
+    roles:
+      - manager
+      - backend
+      - frontend
+      - prometheus
+
+  # Agent nodes — Nantes site
+  - cluster: ecotype
+    site: nantes
+    nodes: 2
+    roles:
+      - agent
+      - nantes
+
+  # Agent nodes — Rennes site (cross-site WAN link)
+  - cluster: paradoxe
+    site: rennes
+    nodes: 1
+    roles:
+      - agent
+      - rennes
+
+network_constraints:
+  default_delay: 0ms
+  default_rate: 1gbit
+  constraints:
+    # Latency constraint between manager and agents
+    - src: manager
+      dst: agent
+      delay: 20ms
+      symmetric: True
+
+# Explicit topology: defines which agents are connected as edges on the graph.
+# Only these links appear in the frontend and get monitored.
+# Agents not listed here are still reachable but have no visible edge.
+topology:
+  links:
+    - src: manager
+      dst: agent-nantes-1
+      delay: 5ms
+      rate: 1gbit
+    - src: manager
+      dst: agent-nantes-2
+      delay: 5ms
+      rate: 1gbit
+    - src: manager
+      dst: agent-rennes-1
+      delay: 20ms
+      rate: 100mbit
+    - src: agent-nantes-1
+      dst: agent-nantes-2
+      delay: 2ms
+      rate: 1gbit
+    - src: agent-nantes-1
+      dst: agent-rennes-1
+      delay: 25ms
+      rate: 100mbit
