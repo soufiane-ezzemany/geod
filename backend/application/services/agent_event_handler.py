@@ -43,7 +43,7 @@ class AgentEventHandler:
         self._agent_registry.register(agent)
 
         try:
-            self._topology_service.auto_connect_agent(
+            self._topology_service.register_agent(
                 hostname,
                 {
                     'ip': registration_data.get('ip_address'),
@@ -51,17 +51,10 @@ class AgentEventHandler:
                     'status': 'online'
                 }
             )
-
-            existing_nodes = [
-                n for n in self._topology_service.get_all_agent_nodes()
-                if n != hostname
-            ]
-            for other_node in existing_nodes:
-                logger.info(f"Auto-connected {hostname} <-> {other_node}")
+            logger.info(f"Agent registered: {hostname} ({sid})")
         except Exception as e:
-            logger.error(f"Error in auto-connection logic: {e}")
+            logger.error(f"Error in agent registration: {e}")
 
-        logger.info(f"Agent registered: {hostname} ({sid})")
         return agent
 
     def handle_disconnection(self, sid: str) -> Optional[Agent]:

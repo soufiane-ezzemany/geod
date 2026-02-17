@@ -1,7 +1,10 @@
 """Agent registry service for managing connected agents."""
 
+import logging
 from typing import Dict, List, Optional
 from domain.models.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRegistry:
@@ -12,6 +15,14 @@ class AgentRegistry:
         self._sid_to_agent: Dict[str, Agent] = {}
 
     def register(self, agent: Agent) -> None:
+        # Check if this hostname already has a registration with a different SID
+        old_sid = self._hostname_to_sid.get(agent.hostname)
+        if old_sid and old_sid != agent.sid:
+            # Remove the stale SID entry to prevent duplicates
+            self._sid_to_agent.pop(old_sid, None)
+            logger.info(f"Cleaned up stale session for {agent.hostname}: old_sid={old_sid}, new_sid={agent.sid}")
+
+        # Register the new agent with its SID
         self._sid_to_agent[agent.sid] = agent
         self._hostname_to_sid[agent.hostname] = agent.sid
 
