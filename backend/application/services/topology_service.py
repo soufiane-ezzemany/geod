@@ -1,8 +1,11 @@
 """Topology service for managing network topology."""
 
+import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from infrastructure.repositories.topology_repository import TopologyRepository
+
+logger = logging.getLogger(__name__)
 
 
 class TopologyService:
@@ -10,12 +13,18 @@ class TopologyService:
 
     def __init__(self, repository: Optional[TopologyRepository] = None):
         self._repository = repository or TopologyRepository()
+        # Stored topology link definitions (source of truth for which edges exist)
+        self._topology_config: List[Dict[str, Any]] = []
 
     def add_node(self, node_id: str, data: Optional[Dict[str, Any]] = None) -> None:
         self._repository.add_node(node_id, data)
 
     def add_link(self, source: str, target: str, data: Optional[Dict[str, Any]] = None) -> None:
         self._repository.add_edge(source, target, data)
+
+    def remove_all_edges(self) -> None:
+        """Remove all edges from the graph while preserving nodes."""
+        self._repository.clear_edges()
 
     def update_link_stats(self, source: str, target: str, stats: Dict[str, Any]) -> None:
         stats_with_timestamp = {
@@ -63,15 +72,83 @@ class TopologyService:
     def get_all_agent_nodes(self) -> List[str]:
         return self._repository.get_nodes_by_type('agent')
 
-    def auto_connect_agent(self, hostname: str, agent_data: Dict[str, Any]) -> None:
-        """Create full-mesh topology by connecting new agent to all existing agents."""
+    def get_topology_config(self) -> List[Dict[str, Any]]:
+        """Return the current topology link definitions."""
+        return self._topology_config
+
+    def register_agent(self, hostname: str, agent_data: Dict[str, Any]) -> None:
+        """Register an agent as a node WITHOUT creating any edges.
+        Edges are only created based on the topology config."""
         self.add_node(hostname, data=agent_data)
+        # If we have a topology config, rebuild edges for this new agent
+        if self._topology_config:
+            self._apply_links_for_agent(hostname)
 
-        existing_nodes = [
-            node for node in self.get_all_agent_nodes()
-            if node != hostname
-        ]
+    def load_topology_config(self, links: List[Dict[str, Any]]) -> None:
+        """Load a new topology configuration and rebuild all edges.
+        
+        Args:
+            links: List of link definitions, each with 'src', 'dst', 
+                   and optional 'delay', 'rate', 'symmetric' fields.
+        """
+        self._topology_config = links
+        self.rebuild_topology_edges()
 
-        for other_node in existing_nodes:
-            self.add_link(hostname, other_node, {'monitoring': True, 'type': 'auto'})
-            self.add_link(other_node, hostname, {'monitoring': True, 'type': 'auto'})
+    def rebuild_topology_edges(self) -> None:
+        """Clear all edges and recreate them based on the topology config
+        and currently registered agents."""
+        self.remove_all_edges()
+        registered_agents = set(self.get_all_agent_nodes())
+
+        for link_def in self._topology_config:
+            src = link_def.get('src', '')
+            dst = link_def.get('dst', '')
+
+            # Only create edge if both agents are registered
+            if src in registered_agents and dst in registered_agents:
+                edge_data = {
+                    'monitoring': True,
+                    'type': 'configured',
+                    'delay': link_def.get('delay', '0ms'),
+                    'rate': link_def.get('rate', '1gbit'),
+                }
+                self.add_link(src, dst, edge_data)
+
+                # If symmetric (default True), add reverse edge too
+                if link_def.get('symmetric', True):
+                    self.add_link(dst, src, edge_data)
+
+        logger.info(
+            f"Rebuilt topology: {len(self._topology_config)} definitions, "
+            f"{len(registered_agents)} registered agents"
+        )
+
+    def _apply_links_for_agent(self, hostname: str) -> None:
+        """Apply topology links for a specific newly registered agent."""
+        registered_agents = set(self.get_all_agent_nodes())
+
+        for link_def in self._topology_config:
+            src = link_def.get('src', '')
+            dst = link_def.get('dst', '')
+
+            # Only create edge if this agent is involved AND the other end is registered
+            if src == hostname and dst in registered_agents:
+                edge_data = {
+                    'monitoring': True,
+                    'type': 'configured',
+                    'delay': link_def.get('delay', '0ms'),
+                    'rate': link_def.get('rate', '1gbit'),
+                }
+                self.add_link(src, dst, edge_data)
+                if link_def.get('symmetric', True):
+                    self.add_link(dst, src, edge_data)
+            elif dst == hostname and src in registered_agents:
+                edge_data = {
+                    'monitoring': True,
+                    'type': 'configured',
+                    'delay': link_def.get('delay', '0ms'),
+                    'rate': link_def.get('rate', '1gbit'),
+                }
+                self.add_link(src, dst, edge_data)
+                if link_def.get('symmetric', True):
+                    self.add_link(dst, src, edge_data)

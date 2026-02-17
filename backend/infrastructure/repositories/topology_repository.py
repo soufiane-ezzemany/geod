@@ -71,11 +71,17 @@ class TopologyRepository:
 
     def to_dict(self) -> Dict[str, Any]:
         with self._lock:
-            return nx.node_link_data(self._graph, edges="links")
+            return nx.node_link_data(self._graph)
 
     def from_dict(self, data: Dict[str, Any]) -> None:
         with self._lock:
-            self._graph = nx.node_link_graph(data, edges="links")
+            self._graph = nx.node_link_graph(data)
+
+    def clear_edges(self) -> None:
+        """Remove all edges from the graph while preserving nodes."""
+        with self._lock:
+            edges = list(self._graph.edges())
+            self._graph.remove_edges_from(edges)
 
     def clear(self) -> None:
         with self._lock:

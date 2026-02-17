@@ -106,6 +106,82 @@ def update_topology():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+@app.route('/api/topology/config', methods=['POST'])
+def set_topology_config():
+    """
+    Set topology link definitions (dynamic, no restart needed).
+    ---
+    tags:
+      - Topology
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            links:
+              type: array
+              items:
+                type: object
+                properties:
+                  src:
+                    type: string
+                  dst:
+                    type: string
+                  delay:
+                    type: string
+                  rate:
+                    type: string
+                  symmetric:
+                    type: boolean
+          example:
+            links:
+              - src: agent-paris
+                dst: agent-ny
+                delay: "80ms"
+                symmetric: true
+              - src: agent-paris
+                dst: agent-tokyo
+                delay: "120ms"
+    responses:
+      200:
+        description: Topology config applied and broadcast to frontends
+      400:
+        description: Invalid data
+    """
+    data = request.json
+    links = data.get('links', [])
+
+    try:
+        container.topology_service.load_topology_config(links)
+        # Broadcast updated topology to all connected frontends
+        socketio.emit('topology_update', container.topology_service.get_topology_json())
+        logger.info(f"Topology config updated: {len(links)} link definitions")
+        return jsonify({
+            "status": "success",
+            "links_defined": len(links),
+            "message": "Topology config applied and broadcast to all frontends"
+        })
+    except Exception as e:
+        logger.error(f"Error applying topology config: {e}")
+        return jsonify({"error": str(e)}), 400
+
+@app.route('/api/topology/config', methods=['GET'])
+def get_topology_config():
+    """
+    Get current topology link definitions.
+    ---
+    tags:
+      - Topology
+    responses:
+      200:
+        description: Current topology config
+    """
+    return jsonify({
+        "links": container.topology_service.get_topology_config()
+    })
+
 @app.route('/api/agents', methods=['GET'])
 def get_agents():
     """
@@ -838,7 +914,8 @@ def monitor_links_loop():
 
         try:
             graph_data = container.topology_service.get_topology_json()
-            links = graph_data.get('links', [])
+            # NetworkX returns 'edges' in node_link_data format
+            links = graph_data.get('edges', graph_data.get('links', []))
 
             for link in links:
                 source = link.get('source')
