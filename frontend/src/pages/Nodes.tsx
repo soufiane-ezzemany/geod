@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Server } from "lucide-react";
-import { API_ENDPOINTS, BACKEND_URL } from "@/config";
-import { io } from "socket.io-client";
+import { API_ENDPOINTS } from "@/config";
+import { useSocket } from "@/context/socket-context";
 
 interface AgentInfo {
   sid: string;
@@ -15,39 +15,43 @@ interface AgentInfo {
 }
 
 export default function Nodes() {
+  const { socket, isConnected } = useSocket();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
 
+  // Fetch agents when socket connects (or reconnects)
   useEffect(() => {
-    // Initial Fetch
+    if (!isConnected) return;
+
+    // Re-fetch agent list every time we (re)connect
     fetch(API_ENDPOINTS.agents)
       .then((res) => res.json())
       .then((data) => setAgents(data))
       .catch((err) => console.error("Failed to fetch agents:", err));
+  }, [isConnected]);
 
-    // Socket Listeners
-    const socket = io(BACKEND_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      timeout: 20000,
-    });
+  // Listen for real-time agent events
+  useEffect(() => {
+    if (!socket) return;
 
-    socket.on("agent_connected", (newAgent: AgentInfo) => {
+    const handleAgentConnected = (newAgent: AgentInfo) => {
       setAgents((prev) => {
         if (prev.find((a) => a.hostname === newAgent.hostname)) return prev;
         return [...prev, newAgent];
       });
-    });
+    };
 
-    socket.on("agent_disconnected", (data: { hostname: string }) => {
+    const handleAgentDisconnected = (data: { hostname: string }) => {
       setAgents((prev) => prev.filter((a) => a.hostname !== data.hostname));
-    });
+    };
+
+    socket.on("agent_connected", handleAgentConnected);
+    socket.on("agent_disconnected", handleAgentDisconnected);
 
     return () => {
-      socket.disconnect();
+      socket.off("agent_connected", handleAgentConnected);
+      socket.off("agent_disconnected", handleAgentDisconnected);
     };
-  }, []);
+  }, [socket]);
 
   return (
     <div className="space-y-6 p-6">

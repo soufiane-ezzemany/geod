@@ -90,6 +90,7 @@ export interface TopologyData {
   graph: Record<string, unknown>;
   nodes: TopologyNode[];
   links: TopologyLink[];
+  edges?: TopologyLink[];  // NetworkX uses 'edges' by default
 }
 
 

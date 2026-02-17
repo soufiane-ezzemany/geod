@@ -9,7 +9,7 @@ import ReactFlow, {
   useNodesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { io, Socket } from "socket.io-client";
+import { useSocket } from "@/context/socket-context";
 import { toast } from "sonner";
 import CustomEdge from "./CustomEdge";
 import AgentNode from "./nodes/AgentNode";
@@ -24,7 +24,7 @@ import type {
   LatencyParams,
   LossParams,
 } from "@/types/network";
-import { BACKEND_URL, API_ENDPOINTS } from "@/config";
+import { API_ENDPOINTS } from "@/config";
 import { topologyLogger } from "@/lib/logger";
 import {
   determineLinkColor,
@@ -44,8 +44,7 @@ const edgeTypes = {
 const TopologyGraph = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const { socket: sharedSocket, isConnected } = useSocket();
   const [, setPendingEdges] = useState<
     Record<string, { action: "remove" | "add"; ts: number }>
   >({});
@@ -82,7 +81,9 @@ const TopologyGraph = () => {
           const loss = p.loss;
           if (loss) {
             await apiService.applyLoss(nodeId, String(loss));
-            toast.success(`Perte de paquets de ${loss} appliquée sur ${nodeId}`);
+            toast.success(
+              `Perte de paquets de ${loss} appliquée sur ${nodeId}`,
+            );
           }
           return;
         }
@@ -104,7 +105,7 @@ const TopologyGraph = () => {
           const rules = p.rules || [];
           const mode = p.mode || "replace";
           const iface = p.interface;
-          
+
           await apiService.applyChaosConfig(nodeId, rules, iface, mode);
           toast.success(`Chaos rules applied to ${nodeId}`);
           return;
@@ -140,7 +141,7 @@ const TopologyGraph = () => {
         return;
       }
     },
-    [], 
+    [],
   );
 
   const handleEdgeAction = useCallback(
@@ -158,61 +159,56 @@ const TopologyGraph = () => {
 
       if (action === "iperf") {
         try {
-            const iperfParams = params as IperfClientParams;
-            // 1. Start Server on Target
-            await apiService.executeCommand(target, "start_iperf_server", {});
-            toast.info(`Starting Iperf Server on ${target}...`);
+          const iperfParams = params as IperfClientParams;
+          // 1. Start Server on Target
+          await apiService.executeCommand(target, "start_iperf_server", {});
+          toast.info(`Starting Iperf Server on ${target}...`);
 
-            // 2. Start Client on Source (after short delay)
-            setTimeout(async () => {
-              await apiService.executeCommand(source, "run_iperf_client", {
-                target: target,
-                duration: iperfParams?.duration || UI.DEFAULT_IPERF_DURATION,
-              });
-              toast.success(`Started Iperf Client on ${source} -> ${target}`);
-            }, 1000);
+          // 2. Start Client on Source (after short delay)
+          setTimeout(async () => {
+            await apiService.executeCommand(source, "run_iperf_client", {
+              target: target,
+              duration: iperfParams?.duration || UI.DEFAULT_IPERF_DURATION,
+            });
+            toast.success(`Started Iperf Client on ${source} -> ${target}`);
+          }, 1000);
         } catch (error) {
-            toast.error(`Erreur iperf: ${error}`);
+          toast.error(`Erreur iperf: ${error}`);
         }
       }
     },
     [],
   );
 
-  // Initialize Socket
+  // Re-fetch topology when socket connects/reconnects
   useEffect(() => {
-    const newSocket = io(BACKEND_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      timeout: 20000,
-    });
-    setSocket(newSocket);
+    if (!isConnected) return;
+    topologyLogger.info("Connected to backend, fetching topology");
+    fetch(API_ENDPOINTS.topology)
+      .then((res) => res.json())
+      .then((data: TopologyData) => processRef.current?.(data));
+  }, [isConnected]);
 
-    newSocket.on("connect", () => {
-      setIsConnected(true);
-      topologyLogger.info("Connected to backend");
-      // Request initial topology
-      fetch(API_ENDPOINTS.topology)
-        .then((res) => res.json())
-        .then((data: TopologyData) => processRef.current?.(data));
-    });
+  // Set up socket event listeners
+  useEffect(() => {
+    if (!sharedSocket) return;
 
-    newSocket.on("disconnect", () => setIsConnected(false));
-
-    newSocket.on("topology_update", (data: TopologyData) => {
+    const handleTopologyUpdate = (data: TopologyData) => {
       // Clear pending markers; server topology is authoritative
       setPendingEdges({});
       processRef.current?.(data);
-    });
+    };
 
     // Acks for link operations
-    newSocket.on("link_removed_ack", (ack) => {
+    const handleLinkRemovedAck = (ack: {
+      source: string;
+      target: string;
+      status: string;
+      message?: string;
+    }) => {
       const { source, target, status, message } = ack || {};
       const edgeId = `${source}-${target}`;
       if (status === "removed") {
-        // Ensure it's removed locally and clear pending
         setEdges((eds) => eds.filter((e) => e.id !== edgeId));
         setPendingEdges((p) => {
           const copy = { ...p };
@@ -221,7 +217,6 @@ const TopologyGraph = () => {
         });
         toast.success(`Lien supprimé: ${source} → ${target}`);
       } else {
-        // Failure: clear pending flag and notify
         setEdges((eds) =>
           eds.map((e) =>
             e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e,
@@ -236,13 +231,17 @@ const TopologyGraph = () => {
           `Échec suppression lien ${source} → ${target}: ${message || "Erreur"}`,
         );
       }
-    });
+    };
 
-    newSocket.on("link_added_ack", (ack) => {
+    const handleLinkAddedAck = (ack: {
+      source: string;
+      target: string;
+      status: string;
+      message?: string;
+    }) => {
       const { source, target, status, message } = ack || {};
       const edgeId = `${source}-${target}`;
       if (status === "added") {
-        // Mark not pending and ensure it's present
         setEdges((eds) => {
           const exists = eds.find((e) => e.id === edgeId);
           if (exists) {
@@ -252,7 +251,6 @@ const TopologyGraph = () => {
                 : e,
             );
           }
-          // If not exists, add minimal edge (server will send topology_update soon)
           return [
             ...eds,
             {
@@ -271,7 +269,6 @@ const TopologyGraph = () => {
         });
         toast.success(`Lien ajouté: ${source} → ${target}`);
       } else {
-        // Error: clear pending and notify
         setEdges((eds) =>
           eds.map((e) =>
             e.id === edgeId ? { ...e, data: { ...e.data, pending: false } } : e,
@@ -286,9 +283,9 @@ const TopologyGraph = () => {
           `Échec ajout lien ${source} → ${target}: ${message || "Erreur"}`,
         );
       }
-    });
+    };
 
-    newSocket.on("network_stats_update", (data: NetworkStatsUpdate) => {
+    const handleNetworkStats = (data: NetworkStatsUpdate) => {
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === data.hostname) {
@@ -300,30 +297,26 @@ const TopologyGraph = () => {
           return node;
         }),
       );
-    });
+    };
 
-    newSocket.on("link_stats_update", (data: LinkStatsUpdate) => {
+    const handleLinkStats = (data: LinkStatsUpdate) => {
       const sortedIds = [data.source, data.target].sort();
       const edgeId = `${sortedIds[0]}::${sortedIds[1]}`;
 
       setEdges((eds) =>
         eds.map((edge) => {
           if (edge.id === edgeId) {
-            // Clone data to avoid mutation
             const newData = { ...edge.data };
             const updatedLatency = data.latency;
             const updatedLoss = data.packet_loss || 0;
 
-            // Update the specific direction stats
             if (data.source === sortedIds[0]) {
-              // Forward update
               newData.forward = {
                 ...newData.forward,
                 latency: updatedLatency,
                 packet_loss: updatedLoss,
               };
             } else {
-              // Backward update
               newData.backward = {
                 ...newData.backward,
                 latency: updatedLatency,
@@ -331,7 +324,6 @@ const TopologyGraph = () => {
               };
             }
 
-            // Recalculate color based on max latency and max loss
             const lat1 = newData.forward?.latency || 0;
             const lat2 = newData.backward?.latency || 0;
             const maxLat = Math.max(lat1, lat2);
@@ -351,12 +343,22 @@ const TopologyGraph = () => {
           return edge;
         }),
       );
-    });
+    };
+
+    sharedSocket.on("topology_update", handleTopologyUpdate);
+    sharedSocket.on("link_removed_ack", handleLinkRemovedAck);
+    sharedSocket.on("link_added_ack", handleLinkAddedAck);
+    sharedSocket.on("network_stats_update", handleNetworkStats);
+    sharedSocket.on("link_stats_update", handleLinkStats);
 
     return () => {
-      newSocket.close();
+      sharedSocket.off("topology_update", handleTopologyUpdate);
+      sharedSocket.off("link_removed_ack", handleLinkRemovedAck);
+      sharedSocket.off("link_added_ack", handleLinkAddedAck);
+      sharedSocket.off("network_stats_update", handleNetworkStats);
+      sharedSocket.off("link_stats_update", handleLinkStats);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sharedSocket, handleEdgeAction, setEdges, setNodes, setPendingEdges]);
 
   const processTopologyData = useCallback(
     (data: TopologyData) => {

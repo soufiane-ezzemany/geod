@@ -57,10 +57,13 @@ export function processTopologyData(
     return n ? (n.status as string) : "offline";
   };
 
+  // Normalize: API may return 'edges' (NetworkX default) or 'links'
+  const links = data.links?.length ? data.links : (data.edges || []);
+
   // Group links by pair to create unified bidirectional edges
   const linkPairs = new Map<string, { forward?: TopologyLink; backward?: TopologyLink }>();
 
-  data.links.forEach((l) => {
+  links.forEach((l) => {
     const sortedIds = [l.source, l.target].sort();
     const pairKey = `${sortedIds[0]}::${sortedIds[1]}`;
 
