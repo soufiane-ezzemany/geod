@@ -2,12 +2,16 @@ import { StatsCard } from "@/components/stats/StatsCard";
 import TopologyGraph from "@/components/topology/TopologyGraph";
 import { Activity, AlertCircle, Layers, Network } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
-import type { TopologyData, TopologyLink, LinkStatsUpdate } from "@/types/network";
+import type {
+  TopologyData,
+  TopologyLink,
+  LinkStatsUpdate,
+} from "@/types/network";
 import { API_ENDPOINTS } from "@/config";
 import { useSocket } from "@/context/socket-context";
 
 export default function Dashboard() {
-  const { socket } = useSocket();
+  const { socket, isConnected } = useSocket();
   const [topology, setTopology] = useState<{
     nodes: unknown[];
     links: TopologyLink[];
@@ -42,21 +46,28 @@ export default function Dashboard() {
   }, [topology]);
 
   useEffect(() => {
-    // Initial fetch
+    // Re-fetch topology when socket connects/reconnects
+    if (!isConnected) return;
+
     fetch(API_ENDPOINTS.topology)
       .then((res) => res.json())
       .then((data: TopologyData) => {
-        if (data.nodes && data.links) {
-          setTopology({ nodes: data.nodes, links: data.links });
+        // Normalize: API may return 'edges' (NetworkX) or 'links'
+        const links = data.links?.length ? data.links : data.edges || [];
+        if (data.nodes && links.length) {
+          setTopology({ nodes: data.nodes, links });
         }
       });
+  }, [isConnected]);
 
+  useEffect(() => {
     if (!socket) return;
 
     // Handle full topology update
     const handleTopologyUpdate = (data: TopologyData) => {
-      if (data.nodes && data.links) {
-        setTopology({ nodes: data.nodes, links: data.links });
+      const links = data.links?.length ? data.links : data.edges || [];
+      if (data.nodes && links.length) {
+        setTopology({ nodes: data.nodes, links });
       }
     };
 
@@ -65,7 +76,11 @@ export default function Dashboard() {
       setTopology((prev) => {
         const newLinks = prev.links.map((link) => {
           if (link.source === data.source && link.target === data.target) {
-            return { ...link, latency: data.latency, packet_loss: data.packet_loss };
+            return {
+              ...link,
+              latency: data.latency,
+              packet_loss: data.packet_loss,
+            };
           }
           return link;
         });
