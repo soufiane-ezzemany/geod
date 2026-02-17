@@ -22,6 +22,7 @@ services:
 
   agent-paris:
     build: ../agent
+    hostname: agent-paris
     command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
@@ -30,6 +31,7 @@ services:
 
   agent-ny:
     build: ../agent
+    hostname: agent-ny
     command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
@@ -38,6 +40,7 @@ services:
 
   agent-tokyo:
     build: ../agent
+    hostname: agent-tokyo
     command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always

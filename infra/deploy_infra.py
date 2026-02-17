@@ -2,36 +2,35 @@
 """
 Grid'5000 Full Infrastructure Deployment Script
 
-Deploys:
-- Backend (Flask+SocketIO) + Prometheus on one node
-- Frontend (Vite) on another node  
-- Agents on multiple nodes across sites
+Reads all configuration from infra.yaml and deploys:
+- Backend (Flask+SocketIO) + Prometheus on manager node(s)
+- Frontend (Vite) on frontend node(s)
+- Agents on agent nodes across sites
 
 Usage:
     python deploy_infra.py
+    python deploy_infra.py --config custom-infra.yaml
 """
 
+import argparse
 import logging
 import socket
 import os
 import time
 import tempfile
 import shutil
+import yaml
 import enoslib as en
 
 # =============================================================================
-# Configuration
+# Paths (relative to this script)
 # =============================================================================
 
-WALLTIME = "02:00:00"
-JOB_NAME = "geod-full-stack"
-
-# Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "backend"))
 FRONTEND_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "frontend"))
 AGENT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "agent"))
-PROMETHEUS_CONFIG = os.path.abspath(os.path.join(SCRIPT_DIR, "prometheus.yml"))
+DEFAULT_INFRA_YAML = os.path.abspath(os.path.join(SCRIPT_DIR, "infra.yaml"))
 
 REMOTE_BACKEND_DIR = "~/backend"
 REMOTE_FRONTEND_DIR = "~/frontend"
@@ -64,6 +63,29 @@ def copy_dir_excluding(src_dir: str, dest_dir: str, excludes: list[str]) -> str:
     return dest_path
 
 # =============================================================================
+# Load Infrastructure Configuration from YAML
+# =============================================================================
+
+parser = argparse.ArgumentParser(description="Deploy Geod on Grid5000")
+parser.add_argument(
+    "-c", "--config",
+    default=DEFAULT_INFRA_YAML,
+    help=f"Path to infra YAML config (default: {DEFAULT_INFRA_YAML})"
+)
+args = parser.parse_args()
+
+with open(args.config, "r") as f:
+    infra_config = yaml.safe_load(f)
+
+JOB_NAME = infra_config.get("job_name", "geod-full-stack")
+WALLTIME = infra_config.get("walltime", "02:00:00")
+machines = infra_config.get("machines", [])
+
+if not machines:
+    print("Error: No machines defined in infra.yaml")
+    exit(1)
+
+# =============================================================================
 # Setup
 # =============================================================================
 
@@ -71,40 +93,31 @@ en.init_logging(level=logging.INFO)
 en.check()
 
 # =============================================================================
-# Infrastructure Definition
+# Infrastructure Definition (built dynamically from infra.yaml)
 # =============================================================================
 
 print("\n" + "=" * 60)
 print("GEOD FULL STACK DEPLOYMENT")
 print("=" * 60)
+print(f"  Config: {args.config}")
+print(f"  Job:    {JOB_NAME} ({WALLTIME})")
+print(f"  Machines: {len(machines)} groups")
 
-conf = (
-    en.G5kConf.from_settings(
-        job_type=[],
-        job_name=JOB_NAME,
-        walltime=WALLTIME
-    )
-    # Manager node: Backend + Frontend + Prometheus (all-in-one)
-    .add_machine(
-        roles=["manager", "backend", "frontend", "prometheus"],
-        cluster="ecotype",
-        nodes=1,
-        site="nantes"
-    )
-    # Agent nodes (distributed across sites)
-    .add_machine(
-        roles=["agent", "nantes"],
-        cluster="ecotype",
-        nodes=2,
-        site="nantes"
-    )
-    .add_machine(
-        roles=["agent", "rennes"],
-        cluster="paradoxe",
-        nodes=1,
-        site="rennes"
-    )
+conf = en.G5kConf.from_settings(
+    job_type=[],
+    job_name=JOB_NAME,
+    walltime=WALLTIME,
 )
+
+for machine in machines:
+    conf.add_machine(
+        roles=machine["roles"],
+        cluster=machine["cluster"],
+        nodes=machine.get("nodes", 1),
+        site=machine["site"],
+    )
+    print(f"    - {machine['cluster']}/{machine['site']}: "
+          f"{machine.get('nodes', 1)} node(s), roles={machine['roles']}")
 
 # =============================================================================
 # Reserve Nodes
@@ -251,6 +264,73 @@ scrape_configs:
             f"--backend {backend_url} > {REMOTE_AGENT_DIR}/agent.log 2>&1 &"
         )
 
+    # =============================================================================
+    # Push Topology Configuration
+    # =============================================================================
+
+    print(f"\n[8/8] Pushing topology configuration...")
+    time.sleep(10)  # Wait for agents to register
+
+    try:
+        topology_links = []
+        if 'topology' in infra_config and 'links' in infra_config['topology']:
+            topology_links = infra_config['topology']['links']
+
+        if topology_links:
+            # Build name → real hostname mapping from enoslib roles.
+            # Topology names follow the pattern: "role" or "agent-site-N"
+            # e.g., "manager" → manager_node.address
+            #        "agent-nantes-1" → roles["nantes"][0].address
+            #        "agent-rennes-1" → roles["rennes"][0].address
+            name_to_hostname = {}
+
+            # Map "manager" to real hostname
+            name_to_hostname["manager"] = manager_node.address
+
+            # Map site-based agent names: "agent-{site}-{N}"
+            site_roles = {}
+            for role_name, role_nodes in roles.items():
+                if role_name not in ("manager", "backend", "frontend", "prometheus", "agent"):
+                    site_roles[role_name] = role_nodes
+
+            for site_name, site_nodes in site_roles.items():
+                for i, node in enumerate(site_nodes, start=1):
+                    friendly_name = f"agent-{site_name}-{i}"
+                    name_to_hostname[friendly_name] = node.address
+
+            print(f"  Hostname mapping:")
+            for friendly, real in name_to_hostname.items():
+                print(f"    {friendly} → {real}")
+
+            # Resolve topology links: replace friendly names with real hostnames
+            resolved_links = []
+            for link in topology_links:
+                src = link.get('src', '')
+                dst = link.get('dst', '')
+                resolved_src = name_to_hostname.get(src, src)
+                resolved_dst = name_to_hostname.get(dst, dst)
+                resolved_link = {**link, 'src': resolved_src, 'dst': resolved_dst}
+                resolved_links.append(resolved_link)
+
+            # Push topology from the manager node itself (avoids local DNS issues)
+            import json
+            payload = json.dumps({"links": resolved_links})
+            # Escape single quotes in payload for shell
+            escaped_payload = payload.replace("'", "'\\''")
+
+            with en.actions(roles=roles["manager"]) as a:
+                a.shell(
+                    f"curl -s -X POST http://localhost:{BACKEND_PORT}/api/topology/config "
+                    f"-H 'Content-Type: application/json' "
+                    f"-d '{escaped_payload}'"
+                )
+
+            print(f"  ✅ Topology config pushed from manager node: {len(resolved_links)} links defined")
+        else:
+            print("  ⚠️  No topology links found in infra.yaml")
+    except Exception as e:
+        print(f"  ⚠️  Error pushing topology: {e}")
+
 finally:
     # =============================================================================
     # Cleanup Temporary Directories
@@ -283,6 +363,12 @@ AGENTS ({len(agent_nodes)} nodes)
 for node in agent_nodes:
     print(f"  - {node.address}")
 
+# Determine the manager site for the SSH tunnel
+manager_site = next(
+    (m["site"] for m in machines if "manager" in m["roles"]),
+    "nantes"
+)
+
 print(f"""
 SSH TUNNEL (run from your local machine)
 ----------------------------------------
@@ -291,7 +377,7 @@ ssh -L {BACKEND_PORT}:{manager_node.address}:{BACKEND_PORT} \\
     -L {FRONTEND_PORT}:{manager_node.address}:{FRONTEND_PORT} \\
     -L {PROMETHEUS_PORT}:{manager_node.address}:{PROMETHEUS_PORT} \\
     -J <your_user>@access.grid5000.fr \\
-    <your_user>@fnantes.grid5000.fr
+    <your_user>@f{manager_site}.grid5000.fr
 
 Then open in browser:
   - Frontend:   http://localhost:{FRONTEND_PORT}
