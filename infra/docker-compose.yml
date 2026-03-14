@@ -20,27 +20,63 @@ services:
       - geod-net
     command: npm run dev -- --host 0.0.0.0
 
-  agent-paris:
+  paris:
     build: ../agent
-    hostname: agent-paris
+    hostname: paris
     command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
     networks:
       - geod-net
 
-  agent-ny:
+  london:
     build: ../agent
-    hostname: agent-ny
+    hostname: london
     command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always
     networks:
       - geod-net
 
-  agent-tokyo:
+  new-york:
     build: ../agent
-    hostname: agent-tokyo
+    hostname: new-york
+    command: python agent.py --backend http://host.docker.internal:5001
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+  tokyo:
+    build: ../agent
+    hostname: tokyo
+    command: python agent.py --backend http://host.docker.internal:5001
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+  sydney:
+    build: ../agent
+    hostname: sydney
+    command: python agent.py --backend http://host.docker.internal:5001
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+  toronto:
+    build: ../agent
+    hostname: toronto
+    command: python agent.py --backend http://host.docker.internal:5001
+    privileged: true
+    restart: always
+    networks:
+      - geod-net
+
+  berlin:
+    build: ../agent
+    hostname: berlin
     command: python agent.py --backend http://host.docker.internal:5001
     privileged: true
     restart: always

@@ -11,7 +11,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { AgentStats, ChaosRule, CommandParams } from "@/types/network";
-import { Activity, BarChart3, Laptop2, Network, Target, Wifi, Wrench, Zap } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Laptop2,
+  Network,
+  Target,
+  Wifi,
+  Wrench,
+  Zap,
+} from "lucide-react";
 
 export interface OtherNode {
   id: string;
@@ -79,10 +88,14 @@ export function NodeConfigPanel({
               <div
                 className={cn(
                   "w-2 h-2 rounded-full",
-                  nodeData?.status === "online" ? "bg-green-500 animate-pulse" : "bg-slate-400",
+                  nodeData?.status === "online"
+                    ? "bg-green-500 animate-pulse"
+                    : "bg-slate-400",
                 )}
               />
-              <span className="font-medium">{nodeData?.status || "Unknown"}</span>
+              <span className="font-medium">
+                {nodeData?.status || "Unknown"}
+              </span>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/80 border border-slate-200/50 text-sm">
               <span className="text-muted-foreground">{nodeData?.os}</span>
@@ -140,7 +153,7 @@ export function NodeConfigPanel({
                 nodeId={nodeId}
                 availableNodes={allNodes}
                 onApplyRules={(rules: ChaosRule[]) => {
-                  onCommand("chaos_control", { rules });
+                  onCommand("chaos_control", { rules, mode: "append" });
                 }}
               />
             </TabsContent>
@@ -210,7 +223,12 @@ export function NodeConfigPanel({
                             Memory Usage
                           </span>
                           <p className="text-sm text-muted-foreground">
-                            {(nodeData.stats.system?.memory?.used / 1024 / 1024).toFixed(0)} MB Used
+                            {(
+                              nodeData.stats.system?.memory?.used /
+                              1024 /
+                              1024
+                            ).toFixed(0)}{" "}
+                            MB Used
                           </p>
                         </div>
                         <span className="text-2xl font-bold text-purple-600">
