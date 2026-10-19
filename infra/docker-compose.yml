@@ -23,7 +23,7 @@ services:
   paris:
     build: ../agent
     hostname: paris
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
@@ -32,7 +32,7 @@ services:
   london:
     build: ../agent
     hostname: london
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
@@ -41,7 +41,7 @@ services:
   new-york:
     build: ../agent
     hostname: new-york
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
@@ -50,7 +50,7 @@ services:
   tokyo:
     build: ../agent
     hostname: tokyo
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
@@ -59,7 +59,7 @@ services:
   sydney:
     build: ../agent
     hostname: sydney
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
@@ -68,7 +68,7 @@ services:
   toronto:
     build: ../agent
     hostname: toronto
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
@@ -77,7 +77,7 @@ services:
   berlin:
     build: ../agent
     hostname: berlin
-    command: python agent.py --backend http://host.docker.internal:5001
+    command: python agent.py --backend http://infra-backend-1:5000
     privileged: true
     restart: always
     networks:
